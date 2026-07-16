@@ -182,18 +182,6 @@ data "coder_workspace_preset" "default_profile" {
   }
 }
 
-data "coder_workspace_preset" "default_with_repo" {
-  name        = "Latest masked profile + addons repo"
-  description = "Same as above, also live-mounting the prs-backend uat branch into Odoo for addon development."
-  parameters = {
-    odoo_image    = "676206949426.dkr.ecr.us-east-1.amazonaws.com/odoo-synth/odoo:prof_749c8a90-fc88dea8aeef"
-    dump_s3_uri   = "s3://odoo-synth-dumps-676206949426/masked-dumps/b6ad9d1f24e9/masked.dump"
-    repo_url      = "https://github.com/IshaFoundationIT/prs-backend"
-    repo_branch   = "uat"
-    instance_type = "t3.large"
-  }
-}
-
 provider "aws" {
   region = data.coder_parameter.region.value
 }
