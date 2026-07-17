@@ -446,6 +446,70 @@ PY
             >/dev/null 2>&1 || true
         fi
       fi
+      # --- 5b. reconcile schema drift (post-mask) -----------------------------
+      # The masked DB is a pg_restore snapshot of the SOURCE; installed custom
+      # modules' code in the cloned repo may be NEWER than the source snapshot
+      # (fields added to a model after the module was last upgraded on source).
+      # Odoo normally creates such columns via a module upgrade (-u), but a full
+      # -u is blocked here by (a) over-pinned external deps (e.g. isha_bank_integration
+      # pins pycryptodome==3.9.8 while the image ships 3.23.0) and (b) masking
+      # collisions on unique indexes (account_move_unique_name). Neither applies
+      # to a targeted column add. So we load Odoo's registry off the live addons
+      # and emit ALTER TABLE ... ADD COLUMN for every stored field whose column
+      # is absent -- the exact set a -u would create, without the dep/index
+      # checks. This makes /web/login and the website render on first boot
+      # instead of 500-ing on UndefinedColumn. Idempotent (IF NOT EXISTS) and
+      # safe to re-run on every boot. Best-effort: never aborts startup on failure.
+      cat > /tmp/reconcile_schema.py <<'RECONC'
+import odoo, logging, sys
+logging.disable(logging.CRITICAL)
+odoo.tools.config.parse_config(["-c","/etc/odoo/odoo.conf","-d","odoo","--stop-after-init","--logfile=/dev/null"])
+db = odoo.sql_db.db_connect("odoo")
+_sqltype = {
+    "varchar":"varchar","boolean":"boolean NOT NULL DEFAULT false",
+    "int4":"integer","int8":"bigint","numeric":"numeric(15,2)",
+    "date":"date","timestamp":"timestamp","bytea":"bytea","text":"text",
+    "jsonb":"jsonb","float4":"real","float8":"double precision",
+}
+with db.cursor() as cr:
+    env = odoo.api.Environment(cr, odoo.SUPERUSER_ID, {})
+    # only consider physical tables -- abstract mixin models (resource_mixin,
+    # utm_mixin, mail_composer_mixin, ...) carry a _table name but no backing
+    # relation; their fields live on the concrete tables that inherit them,
+    # which we already reach via those models. Adding columns to a mixin
+    # _table would fail (relation does not exist).
+    cr.execute("SELECT table_name FROM information_schema.tables "
+               "WHERE table_schema='public' AND table_type='BASE TABLE'")
+    real_tables = {r[0] for r in cr.fetchall()}
+    cr.execute("SELECT table_name,column_name FROM information_schema.columns WHERE table_schema='public'")
+    existing = {(r[0],r[1]) for r in cr.fetchall()}
+    stmts = []
+    for model in env.values():
+        try: tbl = model._table
+        except Exception: continue
+        if not tbl or tbl not in real_tables: continue
+        for fname, field in model._fields.items():
+            if not getattr(field, "store", False) or not getattr(field, "column_type", None): continue
+            if (tbl, fname) in existing: continue
+            pg = field.column_type[1]
+            sqltype = _sqltype.get(pg, "varchar")
+            stmts.append('ALTER TABLE "%s" ADD COLUMN IF NOT EXISTS "%s" %s;' % (tbl, fname, sqltype))
+    if stmts:
+        for s in stmts:
+            try: cr.execute(s)
+            except Exception as e:
+                print("[reconcile] WARN skip: %s (%s)" % (s, e), file=sys.stderr)
+        cr.commit()
+        print("[reconcile] added %d missing columns" % len(stmts))
+    else:
+        print("[reconcile] schema already in sync (0 missing columns)")
+RECONC
+      docker cp /tmp/reconcile_schema.py env-odoo:/tmp/reconcile_schema.py >/dev/null 2>&1 || true
+      docker exec env-odoo bash -lc 'cd /opt/odoo-src && PYTHONPATH=/opt/odoo-src python3 /tmp/reconcile_schema.py' \
+        >/home/dev/workspace/reconcile.log 2>&1 || true
+      chown dev:dev /home/dev/workspace/reconcile.log 2>/dev/null || true
+      docker restart env-odoo >/dev/null 2>&1 || true
+
     fi
 
     # --- 6. in-env info page (Env Guide app) ---------------------------------

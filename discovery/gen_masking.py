@@ -43,10 +43,15 @@ def _psql_rows(query: str) -> list[list[str]]:
 
 def snapshot_schema() -> dict[str, dict[str, dict]]:
     """table -> {column -> {data_type, fk_target, unique, not_null}} for public
-    base tables. ``unique`` marks a column covered by a SINGLE-column UNIQUE or
-    PRIMARY KEY constraint (a shape-collapsing transformer on such a column emits
-    duplicate values -> the whole table fails its COPY on restore and lands
-    EMPTY). ``not_null`` marks a NOT NULL column (must never be nulled out)."""
+    base tables. ``unique`` marks a column covered by ANY UNIQUE index or
+    constraint -- single- OR multi-column, full OR partial (WHERE ...). A
+    shape-collapsing / non-injective transformer (Masking, RandomPerson, ...) on
+    such a column can emit duplicate values; for a multi-column key whose other
+    column has few distinct values (e.g. account_move(name, journal_id) WHERE
+    state='posted'), two masked rows can collide on the full key and break a
+    later CREATE UNIQUE INDEX (Odoo's _auto_init) or the table's COPY on restore.
+    So any column in any unique key is left UNMASKED (kept) -- these are
+    identifiers/sequences, not free PII. ``not_null`` = NOT NULL column."""
     tables: dict[str, dict[str, dict]] = {}
     cols = _psql_rows(
         "SELECT c.table_name, c.column_name, c.data_type, c.is_nullable "
@@ -62,18 +67,16 @@ def snapshot_schema() -> dict[str, dict[str, dict]]:
         tables.setdefault(tbl, {})[col] = {
             "data_type": dtype, "fk_target": None,
             "unique": False, "not_null": (nullable == "NO")}
-    # single-column UNIQUE / PRIMARY KEY constraints: a masked value that
-    # collides here fails the table's COPY on restore (table ends up empty).
-    # Only single-column constraints matter -- a multi-column unique key can
-    # still be satisfied even if one masked column repeats.
+    # ANY column of ANY unique index (covers single + multi-column, partial +
+    # full, and constraint-backed indexes -- pg_constraint unique constraints
+    # are realized as unique indexes, so pg_index alone sees them all).
     uniq = _psql_rows(
         "SELECT t.relname, a.attname "
-        "FROM pg_constraint con "
-        "JOIN pg_class t ON t.oid=con.conrelid "
+        "FROM pg_index i "
+        "JOIN pg_class t ON t.oid=i.indrelid "
         "JOIN pg_namespace n ON n.oid=t.relnamespace "
-        "JOIN pg_attribute a ON a.attrelid=t.oid AND a.attnum=ANY(con.conkey) "
-        "WHERE n.nspname='public' AND con.contype IN ('u','p') "
-        "  AND array_length(con.conkey,1)=1")
+        "JOIN pg_attribute a ON a.attrelid=t.oid AND a.attnum=ANY(i.indkey) "
+        "WHERE n.nspname='public' AND i.indisunique")
     for row in uniq:
         if len(row) < 2:
             continue
@@ -113,6 +116,26 @@ _SKIP_COLUMNS = {
     # structural materialized path on any _parent_store model (e.g. "1/5/"):
     # Odoo splits it and casts each segment with int() -> hashing it 500s.
     "parent_path",
+}
+
+# Tables where a bare ``name`` column holds a PERSON/contact name (genuine PII)
+# and SHOULD be masked. On every other table a bare ``name`` is an Odoo
+# document SEQUENCE / reference (account.move.name = "INV/2024/0001",
+# sale.order.name = "SO/2024/0001", stock.picking.name = "WH/IN/0001", ...) --
+# an operational identifier, not PII. Masking such a name (RandomPerson)
+# both destroys a useful debugging reference AND risks collisions on the
+# code-defined unique indexes Odoo creates at runtime via _auto_init (e.g.
+# account_move_unique_name ON (name, journal_id) WHERE state='posted') -- those
+# indexes are NOT in the dumped source schema, so the unique-column guard above
+# can't see them; the allowlist is the backstop. Keep this list narrow: only
+# tables whose ``name`` is truly a human/company display name.
+_NAME_IS_PERSON_TABLES = {
+    "res_partner", "res_partner_address",       # contact / address book
+    "hr_employee", "hr_applicant", "hr_department",
+    "res_users",                                # user display name (login masked separately)
+    "calendar_event",                           # meeting title often names people
+    "mail_alias",                               # alias display name
+    "discuss_channel",                          # channel display name (may name people)
 }
 
 # Odoo core auth / model-metadata / technical tables the masker handles itself
@@ -232,15 +255,15 @@ def _exclude_candidates() -> set[str] | None:
 
 
 def transformer_for(column: str, dtype: str, fk_target: str | None,
-                    unique: bool = False) -> dict | None:
+                    unique: bool = False, table: str = "") -> dict | None:
     """Return a greenmask transformer dict for a column, or None to leave it.
 
-    ``unique`` = the column is covered by a single-column UNIQUE/PK constraint.
-    Shape-collapsing transformers (Masking/Replace) would emit duplicate values
-    on such a column, which fails the table's COPY on restore and leaves the
-    table EMPTY. So a unique text column is masked with ``Hash`` instead, which
-    is deterministic and distinctness-preserving (each distinct input -> a
-    distinct output), keeping the constraint satisfiable. Generic across sources.
+    ``unique`` = the column is part of ANY unique index/constraint (single- or
+    multi-column, full or partial). Masking such a column risks collisions on
+    the unique key (the account_move(name, journal_id) partial unique index is
+    the canonical Odoo case: RandomPerson names collide across posted moves and
+    break _auto_init's CREATE UNIQUE INDEX). These columns are identifiers /
+    sequences, not free PII, so they are LEFT UNMASKED (return None -> keep).
     """
     if fk_target:
         return None  # FK (incl. partner ref): structural; target row is masked itself
@@ -252,9 +275,11 @@ def transformer_for(column: str, dtype: str, fk_target: str | None,
         return None
     if low in _SKIP_COLUMNS or low.endswith("_id") or low.endswith("_state"):
         return None
-    # UNIQUE/PK text column: only a distinctness-preserving transformer is safe.
+    # Part of any unique key: keep the real value. Masking (even Hash on a
+    # multi-column key) can collide and break a unique index/constraint on
+    # restore or a later Odoo _auto_init. Unique columns are identifiers, not PII.
     if unique:
-        return {"name": "Hash", "column": column}
+        return None
     # The greenmask `Masking` transformer keeps the value *shape* while hiding
     # the content (e.g. "John Smith" -> "Jo** *****"), which is far more useful
     # in a dev replica than a constant "REDACTED". Its `type` param picks the
@@ -281,6 +306,18 @@ def transformer_for(column: str, dtype: str, fk_target: str | None,
         return _mask("url")
     if any(k in low for k in ("name", "contact", "display_name", "commercial",
                               "first", "last")):
+        # Person-ish name column. BUT: a BARE ``name`` on a non-person table is
+        # an Odoo document sequence/reference (account.move / sale.order /
+        # stock.picking / mrp.production / pos.order / ... = "INV/2024/0001"),
+        # not PII. Masking it destroys a useful reference and risks collisions
+        # on code-defined unique indexes (account_move_unique_name) that aren't
+        # in the dumped schema. So only mask a bare ``name`` on tables in the
+        # person allowlist; otherwise keep it. Compound name columns
+        # (partner_name, display_name, commercial_company_name, first_name, ...)
+        # are still PII caches and get masked regardless of table.
+        bare_name = (low == "name")
+        if bare_name and table not in _NAME_IS_PERSON_TABLES:
+            return None  # document sequence / operational reference -- keep
         # Person-ish name column: replace with a fully random person name via
         # greenmask RandomPerson. Unlike Masking type=name (which keeps the
         # first+last char of every word AND the word count -> "I**a Y**a
@@ -316,7 +353,7 @@ def generate_plan(installed_modules: list[str], _baseline_dir=None) -> tuple[str
         for col in sorted(schema[table]):
             info = schema[table][col]
             t = transformer_for(col, info["data_type"], info["fk_target"],
-                                 info.get("unique", False))
+                                 info.get("unique", False), table)
             if t:
                 tlist.append(t)
                 n_cols += 1
