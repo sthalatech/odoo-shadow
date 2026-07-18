@@ -27,6 +27,16 @@
 #   deploy/14_caddy_https.sh --status       # show caddy + cert
 source "$(dirname "$0")/lib.sh"
 
+PORT=8080
+DOSTATUS=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --port) PORT="$2"; shift 2 ;;
+    --status) DOSTATUS=1; shift ;;
+    *) log "unknown arg: $1"; exit 2 ;;
+  esac
+done
+
 : "${CODER_SERVER_IP:?CODER_SERVER_IP not in deploy/state.env -- run deploy/11_coder_server.sh first}"
 : "${CODER_SG_ID:?CODER_SG_ID not in deploy/state.env -- run deploy/11_coder_server.sh first}"
 
@@ -41,6 +51,17 @@ done
 HOSTNAME="coder.${CODER_SERVER_IP}.nip.io"
 SSH_TARGET="${CODER_SSH_USER:-ubuntu}@${CODER_SERVER_IP}"
 SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15)
+
+# GitHub hook IP ranges (from api.github.com/meta) -- only these may POST
+# /webhook. Everyone else gets 403 on that path; the rest of the site is open.
+# Fetched locally so the heredoc below can expand ${GITHUB_HOOK_IPS}.
+GITHUB_HOOK_IPS="$(curl -fsS --max-time 15 https://api.github.com/meta 2>/dev/null \
+  | python3 -c "import sys,json; print(' '.join(json.load(sys.stdin).get('hooks',[])))" 2>/dev/null \
+  || true)"
+if [ -z "$GITHUB_HOOK_IPS" ]; then
+  GITHUB_HOOK_IPS="192.30.252.0/22 185.199.108.0/22 140.82.112.0/20 143.55.64.0/20"
+fi
+log "GitHub hook IP ranges: $GITHUB_HOOK_IPS"
 
 log "installing Caddy on $SSH_TARGET and writing Caddyfile (hostname=$HOSTNAME) ..."
 ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "bash -s" -- <<REMOTE
@@ -57,11 +78,34 @@ sudo apt-get install -y -qq caddy >/dev/null 2>&1 || sudo apt-get install -y -qq
 sudo tee /etc/caddy/Caddyfile >/dev/null <<CADDY
 ${HOSTNAME} {
 	encode zstd gzip
-	reverse_proxy 127.0.0.1:8943 {
-		flush_interval -1
-		header_up Host ${CODER_SERVER_IP}:8943
-		header_up X-Forwarded-Proto https
-		header_up X-Forwarded-Host ${HOSTNAME}
+
+	# GitHub webhook -> odoo-synth listener (localhost only). Restricted to
+	# GitHub's hook IP ranges; everyone else gets 403. The listener additionally
+	# verifies the HMAC signature + dedupes by X-GitHub-Delivery.
+	@github_webhook {
+		path /webhook
+		remote_ip ${GITHUB_HOOK_IPS}
+	}
+	handle @github_webhook {
+		reverse_proxy 127.0.0.1:${PORT} {
+			flush_interval -1
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-Host ${HOSTNAME}
+		}
+	}
+	# /webhook from a non-GitHub IP -> 403 (must come before the catch-all)
+	@webhook_path path /webhook
+	handle @webhook_path {
+		respond 403
+	}
+	# everything else -> the Coder HTTP server (dashboard + API)
+	handle {
+		reverse_proxy 127.0.0.1:8943 {
+			flush_interval -1
+			header_up Host ${CODER_SERVER_IP}:8943
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-Host ${HOSTNAME}
+		}
 	}
 }
 CADDY

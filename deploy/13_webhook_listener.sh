@@ -64,13 +64,10 @@ fi
 : "${CODER_INSTANCE_ID:?CODER_INSTANCE_ID not in deploy/state.env}"
 
 # ---------------------------------------------------------------------------
-# 1. open a 2nd inbound port on the Coder SG for the listener (0.0.0.0/0 so
-#    GitHub's webhook delivery IPs can reach it).
+# 1. NO public port: the listener binds 127.0.0.1 only. Caddy (deploy/14) fronts
+#    it on :443, routing /webhook -> 127.0.0.1:$PORT and restricting that route to
+#    GitHub's hook IPs. So we do NOT open $PORT on the SG -- only 443 (done by 14).
 # ---------------------------------------------------------------------------
-log "opening inbound tcp/$PORT on Coder SG $CODER_SG_ID for the webhook listener ..."
-aws ec2 authorize-security-group-ingress --region "$AWS_REGION" \
-  --group-id "$CODER_SG_ID" --protocol tcp --port "$PORT" --cidr 0.0.0.0/0 \
-  >/dev/null 2>&1 || true
 put_state CODER_WEBHOOK_PORT "$PORT"
 
 # ---------------------------------------------------------------------------
@@ -95,7 +92,7 @@ done
 # secrets in the repo tarball.
 log "shipping repo + listener to the Coder server ..."
 REMOTE_DIR="/opt/odoo-synth-coder"
-ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "mkdir -p $REMOTE_DIR"
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo mkdir -p \"$REMOTE_DIR\" && sudo chown -R \"\$USER:\$USER\" \"$REMOTE_DIR\""
 # rsync if available, else tar over ssh
 if command -v rsync >/dev/null 2>&1; then
   rsync -az --delete \
@@ -115,28 +112,34 @@ fi
 log "installing python deps + systemd unit ..."
 SECRET_ENV=""
 [ -n "$SECRET" ] && SECRET_ENV="GITHUB_WEBHOOK_SECRET=$SECRET"
-ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "bash -s" -- <<REMOTE
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "bash -s" -- "$REMOTE_DIR" "$PORT" "$SECRET_ENV" <<'REMOTE'
 set -euo pipefail
+REMOTE_DIR="$1"; PORT="$2"; SECRET_ENV="$3"
 export DEBIAN_FRONTEND=noninteractive
 sudo apt-get update -qq
-sudo apt-get install -y -qq python3 python3-pip python3-venv >/dev/null
-# the launcher needs boto3/pyyaml (profile + run stores); the listener needs flask
-sudo pip3 install --break-system-packages -q flask boto3 pyyaml 2>/dev/null \
-  || sudo pip3 install -q flask boto3 pyyaml
+sudo apt-get install -y -qq python3 python3-venv >/dev/null
+# use a venv (Ubuntu 24.04 PEP 668 blocks system-wide pip). The launcher needs
+# boto3/pyyaml (S3 profile/run stores); the listener needs flask.
+PYBIN="$REMOTE_DIR/.venv/bin/python3"
+if [ ! -x "$PYBIN" ]; then
+  python3 -m venv "$REMOTE_DIR/.venv"
+fi
+"$REMOTE_DIR/.venv/bin/pip" install -q --upgrade pip >/dev/null 2>&1 || true
+"$REMOTE_DIR/.venv/bin/pip" install -q flask boto3 pyyaml
 
-# Coder server already runs `coder server` with CODER_* in /etc/coder/coder.env.
-# Reuse those for the launcher, plus the webhook secret + port.
+# Coder server already runs the coder server daemon with CODER_* in
+# /etc/coder/coder.env. Reuse those for the launcher, plus the webhook
+# secret + port.
 sudo install -d -m 700 /etc/odoo-synth
-sudo tee /etc/odoo-synth/webhook.env >/dev/null <<EOF
-WEBHOOK_PORT=$PORT
-WEBHOOK_BIND=0.0.0.0
-$SECRET_ENV
-EOF
+{
+  printf 'WEBHOOK_PORT=%s\n' "$PORT"
+  printf 'WEBHOOK_BIND=127.0.0.1\n'
+  if [ -n "$SECRET_ENV" ]; then printf '%s\n' "$SECRET_ENV"; fi
+} | sudo tee /etc/odoo-synth/webhook.env >/dev/null
 sudo chmod 600 /etc/odoo-synth/webhook.env
 
 # CODER_URL/CODER_SESSION_TOKEN: source from the coder server env if present,
-# else leave for the launcher to resolve (it can read config.yaml -- but we did
-# not ship secrets, so prefer the server's own /etc/coder/coder.env).
+# else leave for the launcher to resolve.
 if [ -f /etc/coder/coder.env ]; then
   grep -E '^CODER_ACCESS_URL=' /etc/coder/coder.env 2>/dev/null \
     | sed 's/CODER_ACCESS_URL=/CODER_URL=/' | sudo tee -a /etc/odoo-synth/webhook.env >/dev/null || true
@@ -152,7 +155,7 @@ Type=simple
 User=root
 WorkingDirectory=$REMOTE_DIR
 EnvironmentFile=/etc/odoo-synth/webhook.env
-ExecStart=/usr/bin/python3 $REMOTE_DIR/scripts/webhook_listener.py
+ExecStart=$REMOTE_DIR/.venv/bin/python3 $REMOTE_DIR/scripts/webhook_listener.py
 Restart=always
 RestartSec=5
 [Install]
@@ -163,9 +166,10 @@ sudo systemctl enable --now odoo-synth-webhook
 sudo systemctl restart odoo-synth-webhook
 REMOTE
 
-log "webhook listener installed on $CODER_SERVER_IP:$PORT"
+log "webhook listener installed (localhost only: 127.0.0.1:$PORT) -- Caddy fronts it."
+log "run deploy/14_caddy_https.sh (or re-run) to add the /webhook -> 127.0.0.1:$PORT route."
 log "GitHub repo (the addons repo) -> Settings -> Webhooks -> Add webhook:"
-log "  Payload URL: http://$CODER_SERVER_IP:$PORT/webhook"
+log "  Payload URL: https://coder.$CODER_SERVER_IP.nip.io/webhook"
 log "  Content type: application/json"
 log "  Events: Issues ; Secret: <same as GITHUB_WEBHOOK_SECRET>"
 
