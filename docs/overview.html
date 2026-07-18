@@ -150,6 +150,7 @@
           <li>Greenmask over source DB</li>
           <li>Rulebook: field &rarr; strategy map</li>
           <li>Neutralize mail/payment</li>
+          <li>Prune to last N days (subset)</li>
         </ul>
         <div class="arrow"></div>
         <div class="out">&rarr; <b>masked pg_dump in S3</b></div>
@@ -213,6 +214,7 @@
           <li>A maintained <b>YAML map of which Odoo fields are sensitive</b>, by app area (core, accounting, HR, messaging, sales&hellip;).</li>
           <li>Each field is assigned a <b>masking strategy</b> from a fixed vocabulary (<code>fake_*</code>, <code>redact_freetext</code>, null, preserve&hellip;).</li>
           <li>Engine = Greenmask's <code>anon</code> extension; odoo-synth owns <b>the map, not the engine</b>.</li>
+          <li><b>Pruning &mdash; a reduced record set, not the whole DB.</b> A per-profile <code>subset_days</code> knob keeps only the last N days of high-volume transactional tables (sales, invoices, stock, POS, mail&hellip;); master data (partners, products, journals) is retained. Done post-restore via a generic FK-cascading DELETE + orphan sweep, because Greenmask's dump-time subset engine can't handle Odoo's cyclic schema.</li>
         </ul>
       </div>
       <div class="box">
