@@ -507,35 +507,81 @@ PY
         # Only single-column FKs are handled (matches the masker's own sweep).
         # Data cleanup only -- no schema change; the masked replica is already
         # an intentional subset. Runs once (guarded by NEED_UPGRADE).
-        docker exec env-db psql -U odoo -d "$DB_NAME" -v ON_ERROR_STOP=0 <<'ORPHAN' >>/home/dev/workspace/upgrade.log 2>&1
+        docker exec -i env-db psql -U odoo -d "$DB_NAME" -v ON_ERROR_STOP=0 <<'ORPHAN' >>/home/dev/workspace/upgrade.log 2>&1
 DO $$ DECLARE
-  fk record; n bigint; total bigint; passes int := 0;
+  r record; n bigint; total bigint; passes int := 0;
 BEGIN
   LOOP
     total := 0; passes := passes + 1;
-    FOR fk IN
-      SELECT cl.relname AS child, att.attname AS child_col,
-             att.attnotnull AS notnull,
-             pcl.relname AS parent, patt.attname AS parent_col
-      FROM pg_constraint con
-      JOIN pg_class cl  ON cl.oid  = con.conrelid  AND cl.relnamespace  = 'public'::regnamespace
-      JOIN pg_class pcl ON pcl.oid = con.confrelid
-      JOIN pg_attribute att  ON att.attrelid  = con.conrelid  AND att.attnum  = con.conkey[1]
-      JOIN pg_attribute patt ON patt.attrelid = con.confrelid AND patt.attnum = con.confkey[1]
-      WHERE con.contype = 'f' AND cardinality(con.conkey) = 1
+    -- Derive intended parent<-child FK relationships from Odoo's own model
+    -- metadata (ir_model_fields many2one), NOT from pg_constraint: the FK
+    -- constraints themselves are often MISSING from the masked dump (pg_restore
+    -- silently skips ADD CONSTRAINT when the parent rows were absent), so a
+    -- pg_constraint-based sweep would miss exactly the orphans that make Odoo's
+    -- check_foreign_keys re-add the FK and fail. model/relation map to table
+    -- names by replacing '.' with '_'. Skip non-existent tables/columns.
+    FOR r IN
+      SELECT replace(f.model,'.','_') AS child, f.name AS child_col,
+             replace(f.relation,'.','_') AS parent
+      FROM ir_model_fields f
+      WHERE f.ttype = 'many2one'
+        AND f.relation IS NOT NULL AND f.relation <> ''
+        AND f.name LIKE '%\_id'
     LOOP
-      IF fk.notnull THEN
+      BEGIN
         EXECUTE format(
           'DELETE FROM public.%I c WHERE c.%I IS NOT NULL AND NOT EXISTS '
-          '(SELECT 1 FROM public.%I p WHERE p.%I = c.%I)',
-          fk.child, fk.child_col, fk.parent, fk.parent_col, fk.child_col);
-      ELSE
+          '(SELECT 1 FROM public.%I p WHERE p.id = c.%I)',
+          r.child, r.child_col, r.parent, r.child_col);
+        GET DIAGNOSTICS n = ROW_COUNT;
+        total := total + n;
+      EXCEPTION WHEN OTHERS THEN
+        NULL;  -- table/column not present (model name != table); skip
+      END;
+    END LOOP;
+    -- many2many relation tables: relation_table.column2 -> relation.id
+    -- (column2 is the side referencing the often-emptied high-volume parent
+    -- like account_move_line; column1 -> model.id is covered by symmetry on
+    -- the other model's field). Clean both sides to a fixpoint.
+    FOR r IN
+      SELECT f.relation_table AS child, f.column2 AS child_col,
+             replace(f.relation,'.','_') AS parent
+      FROM ir_model_fields f
+      WHERE f.ttype = 'many2many'
+        AND f.relation_table IS NOT NULL AND f.relation_table <> ''
+        AND f.column2 IS NOT NULL AND f.column2 <> ''
+        AND f.relation IS NOT NULL AND f.relation <> ''
+    LOOP
+      BEGIN
         EXECUTE format(
-          'UPDATE public.%I c SET %I = NULL WHERE c.%I IS NOT NULL AND NOT EXISTS '
-          '(SELECT 1 FROM public.%I p WHERE p.%I = c.%I)',
-          fk.child, fk.child_col, fk.child_col, fk.parent, fk.parent_col, fk.child_col);
-      END IF;
-      GET DIAGNOSTICS n = ROW_COUNT; total := total + n;
+          'DELETE FROM public.%I c WHERE c.%I IS NOT NULL AND NOT EXISTS '
+          '(SELECT 1 FROM public.%I p WHERE p.id = c.%I)',
+          r.child, r.child_col, r.parent, r.child_col);
+        GET DIAGNOSTICS n = ROW_COUNT;
+        total := total + n;
+      EXCEPTION WHEN OTHERS THEN
+        NULL;
+      END;
+    END LOOP;
+    FOR r IN
+      SELECT f.relation_table AS child, f.column1 AS child_col,
+             replace(f.model,'.','_') AS parent
+      FROM ir_model_fields f
+      WHERE f.ttype = 'many2many'
+        AND f.relation_table IS NOT NULL AND f.relation_table <> ''
+        AND f.column1 IS NOT NULL AND f.column1 <> ''
+        AND f.model IS NOT NULL AND f.model <> ''
+    LOOP
+      BEGIN
+        EXECUTE format(
+          'DELETE FROM public.%I c WHERE c.%I IS NOT NULL AND NOT EXISTS '
+          '(SELECT 1 FROM public.%I p WHERE p.id = c.%I)',
+          r.child, r.child_col, r.parent, r.child_col);
+        GET DIAGNOSTICS n = ROW_COUNT;
+        total := total + n;
+      EXCEPTION WHEN OTHERS THEN
+        NULL;
+      END;
     END LOOP;
     RAISE NOTICE 'orphan sweep pass % touched % rows', passes, total;
     EXIT WHEN total = 0 OR passes >= 50;

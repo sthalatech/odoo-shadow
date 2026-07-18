@@ -122,6 +122,11 @@ _SKIP_COLUMNS = {
     # structural materialized path on any _parent_store model (e.g. "1/5/"):
     # Odoo splits it and casts each segment with int() -> hashing it 500s.
     "parent_path",
+    # account_reports filter_* are selection/boolean-shaped CONFIG values, not
+    # free text. Masking them to '********' breaks the stored-field recompute
+    # in -u all (ValueError casting '********' to boolean). Not PII.
+    "filter_account_type", "filter_hide_0_lines", "filter_hierarchy",
+    "filter_multi_company", "filter_domain", "filter_pre_domain", "filter_by",
 }
 
 # Tables where a bare ``name`` column holds a PERSON/contact name (genuine PII)
@@ -163,6 +168,17 @@ _SKIP_TABLES = {
     "ir_act_report", "ir_act_url", "ir_act_client", "ir_cron", "ir_rule",
     "ir_config_parameter", "ir_model_access", "res_groups",
     "ir_filters", "ir_logging",
+    # accounting report CONFIGURATION (Odoo core account_reports). These are
+    # structural report-template rows (filter_* are selection/boolean-shaped
+    # config, expressions are code-like strings), not customer PII. Masking
+    # filter_hide_0_lines etc. to '********' makes Odoo's stored-field recompute
+    # during -u all raise ValueError (can't cast '********' to boolean) and abort
+    # the schema-reconcile. Same class as the ir_* metadata tables above.
+    "account_report", "account_report_column", "account_report_expression",
+    "account_report_external_value", "account_report_file_download_error_wizard",
+    "account_report_footnote", "account_report_horizontal_group_rule",
+    "account_report_line", "account_reports_export_wizard",
+    "account_reports_export_wizard_format",
     # credentials -- neutralized by the masker
     "ir_mail_server", "fetchmail_server", "payment_provider",
     # core reference / locale / config data -- seeded from Odoo XML, parsed by
