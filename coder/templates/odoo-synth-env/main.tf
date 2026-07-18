@@ -481,13 +481,28 @@ PY
         # hard-scoped to any one repo: every ERP repo's modules discovered at
         # build time flow through here the same way.
         UP_MODULES="$${UPGRADE_MODULES:-all}"
-        [ -z "$$UP_MODULES" ] && UP_MODULES="all"
-        echo "[startup] upgrading modules: $$UP_MODULES (reconcile schema drift)..." \
+        [ -z "$UP_MODULES" ] && UP_MODULES="all"
+        # Relax exact-version external_dependencies pins in the LIVE-MOUNTED repo
+        # that have no prebuilt wheel for this image's Python / no compiler (e.g.
+        # isha_bank_integration pins pycryptodome==3.9.8, but the image ships a
+        # newer pycryptodome whose API is stable). The baked image copy at
+        # /mnt/extra-addons-custom is already loosened at build time, but the
+        # live-mounted clone at /mnt/live is FIRST in addons_path and shadows it
+        # with the original pinned manifest -- Odoo then enforces ==3.9.8
+        # against the installed 3.x and aborts -u all (UserError), so NO module
+        # upgrades and the schema never reconciles. Apply the same sed loosening
+        # the build uses, to the live repo, right before the upgrade. Idempotent
+        # + only runs once (guarded by NEED_UPGRADE / the reconciled marker).
+        if [ -d "$REPO_DIR" ]; then
+          find "$REPO_DIR" -name __manifest__.py -exec \
+            sed -i -E 's/pycryptodome[[:space:]]*==[[:space:]]*3\.9\.8/pycryptodome/g' {} + 2>/dev/null || true
+        fi
+        echo "[startup] upgrading modules: $UP_MODULES (reconcile schema drift)..." \
           >/home/dev/workspace/upgrade.log
         # --logfile=STDOUT so the real Odoo output (and any crash) lands in
         # upgrade.log for debugging; --stop-after-init exits on completion.
         if docker exec env-odoo bash -lc \
-          "cd /opt/odoo-src && PYTHONPATH=/opt/odoo-src python3 odoo-bin -c /etc/odoo/odoo.conf -d $DB_NAME -u $$UP_MODULES --stop-after-init --logfile=/dev/stdout" \
+          "cd /opt/odoo-src && PYTHONPATH=/opt/odoo-src python3 odoo-bin -c /etc/odoo/odoo.conf -d $DB_NAME -u $UP_MODULES --stop-after-init --logfile=/dev/stdout" \
           >>/home/dev/workspace/upgrade.log 2>&1; then
           # upgrade SUCCEEDED: mark reconciled so we skip the (slow) upgrade on future boots
           docker exec env-db psql -U odoo -d "$DB_NAME" -c \
