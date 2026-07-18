@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# 14: Caddy HTTPS reverse proxy in front of the existing Coder HTTP server.
+#
+# Simplest non-disruptive TLS: install Caddy on the Coder server as a SEPARATE
+# service. It terminates TLS on :443 (auto Let's Encrypt) and reverse-proxies
+# to the already-running Coder server at 127.0.0.1:8943. Coder itself is NEVER
+# touched -- its plain HTTP on :8943 keeps running; HTTPS on :443 is added
+# alongside. No Coder restart, no config change to coder-server.service.
+#
+# Domain: nip.io wildcard DNS (coder.<IP>.nip.io -> <IP>), so Let's Encrypt can
+# issue a real cert with no purchased domain.
+#
+# Why a Host rewrite: Coder validates the request Host against CODER_ACCESS_URL
+# (http://<IP>:8943). Caddy rewrites Host to <IP>:8943 so Coder accepts it; the
+# browser-facing hostname (<IP>.nip.io) is preserved via X-Forwarded-Host.
+#
+# NOTE: the per-app subdomain host (CODER_WILDCARD_ACCESS_URL=*.<IP>.nip.io:8943)
+# still points at the HTTP port and would need a Coder restart to move to HTTPS
+# -- out of scope here. This secures the dashboard + API + webhook listener path,
+# which is what issue->env and human login use.
+#
+# Prereqs: deploy/11_coder_server.sh (CODER_SERVER_IP + CODER_SG_ID in state.env).
+#   Reach the box via SSH (EC2 Instance Connect push or an authorized key).
+#
+# Usage:
+#   deploy/14_caddy_https.sh                # install + enable
+#   deploy/14_caddy_https.sh --status       # show caddy + cert
+source "$(dirname "$0")/lib.sh"
+
+: "${CODER_SERVER_IP:?CODER_SERVER_IP not in deploy/state.env -- run deploy/11_coder_server.sh first}"
+: "${CODER_SG_ID:?CODER_SG_ID not in deploy/state.env -- run deploy/11_coder_server.sh first}"
+
+# 1. open SG 80/443 for Let's Encrypt HTTP-01 + HTTPS
+log "opening inbound tcp/80 + tcp/443 on Coder SG $CODER_SG_ID ..."
+for p in 80 443; do
+  aws ec2 authorize-security-group-ingress --region "$AWS_REGION" \
+    --group-id "$CODER_SG_ID" --protocol tcp --port "$p" --cidr 0.0.0.0/0 \
+    >/dev/null 2>&1 || true
+done
+
+HOSTNAME="coder.${CODER_SERVER_IP}.nip.io"
+SSH_TARGET="${CODER_SSH_USER:-ubuntu}@${CODER_SERVER_IP}"
+SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15)
+
+log "installing Caddy on $SSH_TARGET and writing Caddyfile (hostname=$HOSTNAME) ..."
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "bash -s" -- <<REMOTE
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+sudo install -d -m 0755 /usr/share/keyrings
+curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/gpg.key 2>/dev/null \
+  | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg 2>/dev/null || true
+echo "deb [signed-by=/usr/share/keyrings/caddy-stable-archive-keyring.gpg] https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main" \
+  | sudo tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
+sudo apt-get update -qq 2>/dev/null
+sudo apt-get install -y -qq caddy >/dev/null 2>&1 || sudo apt-get install -y -qq caddy
+
+sudo tee /etc/caddy/Caddyfile >/dev/null <<CADDY
+${HOSTNAME} {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8943 {
+		flush_interval -1
+		header_up Host ${CODER_SERVER_IP}:8943
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-Host ${HOSTNAME}
+	}
+}
+CADDY
+sudo caddy validate --config /etc/caddy/Caddyfile 2>&1 | grep -qi "valid" && echo "caddy config valid"
+sudo systemctl enable --now caddy >/dev/null 2>&1
+sudo systemctl reload caddy 2>/dev/null || sudo systemctl restart caddy
+echo "caddy active: \$(sudo systemctl is-active caddy)"
+REMOTE
+
+log "HTTPS is live at https://$HOSTNAME/ (Coder HTTP on :8943 untouched)."
+log "Point config.yaml / webhooks at: https://$HOSTNAME"
