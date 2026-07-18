@@ -361,6 +361,19 @@ def wait_for_env(env_id: str, timeout: int = 1200, poll: int = 10) -> bool:
         time.sleep(poll)
 
 
+def _coerce_out(v) -> str:
+    """subprocess output is str under text=True, but TimeoutExpired may yield
+    bytes on some Python versions; normalize so concatenation never raises."""
+    if v is None:
+        return ""
+    if isinstance(v, bytes):
+        try:
+            return v.decode("utf-8", "replace")
+        except Exception:
+            return ""
+    return v
+
+
 def ssh_exec(env_id: str, command: str, timeout: int = 600) -> tuple[int, str]:
     """Run a single non-interactive command inside the workspace over
     `coder ssh <ws> -- <cmd>`. Returns (exit_code, combined_output). The
@@ -375,10 +388,10 @@ def ssh_exec(env_id: str, command: str, timeout: int = 600) -> tuple[int, str]:
         p = subprocess.run(cmd, env={**os.environ, **_coder_env()},
                            capture_output=True, text=True, timeout=timeout, check=False)
     except subprocess.TimeoutExpired as exc:
-        return 124, (exc.stdout or "") + (exc.stderr or "")
+        return 124, _coerce_out(exc.stdout) + _coerce_out(exc.stderr)
     except FileNotFoundError as exc:
         raise RuntimeError("coder CLI not installed on the panel host") from exc
-    return p.returncode, (p.stdout or "") + (p.stderr or "")
+    return p.returncode, _coerce_out(p.stdout) + _coerce_out(p.stderr)
 
 
 # Where the project-level system prompt for the AI agent lives. The hook writes
@@ -426,7 +439,10 @@ def _write_agent_context(env_id: str, issue: str, task: str, system_prompt: str)
         f"cp {remote} /home/dev/workspace/repo/AGENT.md && "
         "chown dev:dev /home/dev/workspace/repo/AGENT.md 2>/dev/null; fi; true"
     )
-    rc, out = ssh_exec(env_id, cmd, timeout=60)
+    # --wait=yes blocks until the agent's startup_script (Odoo boot + module
+    # upgrade) finishes so /home/dev/workspace/repo exists; that can take
+    # several minutes, so allow a generous timeout rather than racing it.
+    rc, out = ssh_exec(env_id, cmd, timeout=900)
     return remote if rc == 0 else ""
 
 
@@ -451,13 +467,17 @@ def run_agent(env_id: str, task: str, *, agent: str = "opencode",
         raise ValueError(f"environment not found: {env_id}")
     name = env.get("workspace_name") or env_id
     _write_agent_context(env_id, issue or "", task, system_prompt or "")
+    # ralph-wiggum's shebang is #!/usr/bin/env node but the golden AMI ships
+    # Bun (not Node); invoke ralph under `bun` so it runs without a system
+    # node. `bun /usr/local/bin/ralph` follows the symlink to ralph.js and
+    # runs it under Bun's node-compatible runtime (shebang is ignored).
     # ralph runs as the dev user, cd'd into the cloned addons repo, with the
     # agent context visible. opencode reads AGENT.md / opencode.json from the
     # cwd; AGENT_CONTEXT.md is a stable sibling the system prompt points at.
     safe_task = (task or "").replace("'", "'\"'\"'")
     cmd = (
         f"cd /home/dev/workspace/repo 2>/dev/null || cd /home/dev/workspace; "
-        f"sudo -u dev HOME=/home/dev ralph '{safe_task}' "
+        f"sudo -u dev HOME=/home/dev bun /usr/local/bin/ralph '{safe_task}' "
         f"--agent {agent} --max-iterations {int(max_iterations)}"
     )
     rc, out = ssh_exec(env_id, cmd, timeout=3600)
