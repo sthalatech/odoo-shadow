@@ -59,6 +59,11 @@ from flask import Flask, request, abort
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LAUNCHER = REPO_ROOT / "scripts" / "issue_to_env.py"
+# On the Coder server the launcher's deps (boto3, pyyaml) live in a venv at
+# $REPO_ROOT/.venv (Ubuntu 24.04 PEP 668 blocks system-wide pip). Prefer it if
+# present, else fall back to the system interpreter.
+_VENV_PY = REPO_ROOT / ".venv" / "bin" / "python3"
+PY = str(_VENV_PY) if _VENV_PY.exists() else "python3"
 
 app = Flask(__name__)
 
@@ -106,15 +111,25 @@ def _verify_signature(payload: bytes, sig_header: str | None) -> bool:
 
 def _run_launcher(env: dict) -> None:
     """Run the launcher in the background; output goes to the journal."""
+    import sys
+    issue = env.get("ISSUE_NUMBER", "?")
+    print(f"[launcher] issue #{issue} starting ({PY} {LAUNCHER})", flush=True)
     try:
-        subprocess.run(
-            ["python3", str(LAUNCHER)],
+        proc = subprocess.run(
+            [PY, str(LAUNCHER)],
             env={**os.environ, **env},
             cwd=str(REPO_ROOT),
             capture_output=True, text=True, timeout=90 * 60, check=False,
         )
-    except Exception:  # noqa: BLE001
-        pass
+        out = (proc.stdout or "").rstrip()
+        err = (proc.stderr or "").rstrip()
+        print(f"[launcher] issue #{issue} rc={proc.returncode}", flush=True)
+        if out:
+            print(out, flush=True)
+        if err:
+            print(err, file=sys.stderr, flush=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[launcher] issue #{issue} EXCEPTION: {exc!r}", file=sys.stderr, flush=True)
 
 
 @app.post("/webhook")

@@ -25,6 +25,7 @@ import subprocess
 import time
 import urllib.request
 import uuid
+import yaml
 from typing import Optional
 
 from . import config, store
@@ -156,11 +157,14 @@ def _api_send(path: str, method: str = "POST", body: dict | None = None) -> dict
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(f"coder {method} {path} failed: {exc}") from exc
 
-def _run(args: list, *, json_out: bool = True, timeout: int = 60):
+def _run(args: list, *, json_out: bool = True, timeout: int = 60, extra_env: dict | None = None):
     """Run a `coder` CLI command, returning parsed JSON (or stdout)."""
     cmd = ["coder"] + args + (["-o", "json"] if json_out else [])
+    env = {**os.environ, **_coder_env()}
+    if extra_env:
+        env.update(extra_env)
     try:
-        p = subprocess.run(cmd, env={**os.environ, **_coder_env()},
+        p = subprocess.run(cmd, env=env,
                            capture_output=True, text=True, timeout=timeout, check=False)
     except FileNotFoundError as exc:
         raise RuntimeError("coder CLI not installed on the panel host") from exc
@@ -290,9 +294,23 @@ def create(source_run_id: Optional[str], issue: Optional[str],
         ("upgrade_modules", (upgrade_modules or "").strip()),
     ]
     args = ["create", "-t", TEMPLATE_NAME, "-y", "--no-wait", ws_name]
-    for k, v in params:
-        args += ["--parameter", f"{k}={v}"]
-    _run(args, json_out=False, timeout=120)
+    # Pass rich parameters via a YAML map file (CODER_RICH_PARAMETER_FILE)
+    # rather than `--parameter name=value` flags: Coder's --parameter is a
+    # string-array flag that splits each value on commas, which breaks
+    # comma-separated values (e.g. upgrade_modules=a,b,c -> "got b"). The YAML
+    # map file keeps values intact and is not split, so the discovered-module
+    # CSV reaches the agent startup script unmodified.
+    import tempfile, os as _os
+    params_doc = {k: str(v) for k, v in params}
+    fd, param_path = tempfile.mkstemp(prefix="coder_params_", suffix=".yaml")
+    try:
+        with _os.fdopen(fd, "w") as fh:
+            yaml.safe_dump(params_doc, fh, default_flow_style=False, sort_keys=False)
+        _run(args, json_out=False, timeout=120,
+             extra_env={"CODER_RICH_PARAMETER_FILE": param_path})
+    finally:
+        try: _os.unlink(param_path)
+        except OSError: pass
     pw_arn = _put_password_secret(env_id, admin_password)
     store.update_environment(env_id, workspace_name=ws_name, status="provisioning",
                             password_secret=pw_arn)
