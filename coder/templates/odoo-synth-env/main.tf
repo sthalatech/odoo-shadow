@@ -497,8 +497,53 @@ PY
           find "$REPO_DIR" -name __manifest__.py -exec \
             sed -i -E 's/pycryptodome[[:space:]]*==[[:space:]]*3\.9\.8/pycryptodome/g' {} + 2>/dev/null || true
         fi
+        # Clean orphaned foreign-key rows before -u all. The masked dump is a
+        # pg_restore snapshot of the source; some parent tables come back empty
+        # (e.g. discuss_channel) while their children (discuss_channel_member)
+        # retain rows, leaving dangling FKs. Odoo's registry.check_foreign_keys
+        # then aborts -u all (ForeignKeyViolation) and the schema never
+        # reconciles. Sweep to a fixpoint: DELETE children whose FK column is
+        # NOT NULL and points at a missing parent; NULL nullable FK columns.
+        # Only single-column FKs are handled (matches the masker's own sweep).
+        # Data cleanup only -- no schema change; the masked replica is already
+        # an intentional subset. Runs once (guarded by NEED_UPGRADE).
+        docker exec env-db psql -U odoo -d "$DB_NAME" -v ON_ERROR_STOP=0 <<'ORPHAN' >>/home/dev/workspace/upgrade.log 2>&1
+DO $$ DECLARE
+  fk record; n bigint; total bigint; passes int := 0;
+BEGIN
+  LOOP
+    total := 0; passes := passes + 1;
+    FOR fk IN
+      SELECT cl.relname AS child, att.attname AS child_col,
+             att.attnotnull AS notnull,
+             pcl.relname AS parent, patt.attname AS parent_col
+      FROM pg_constraint con
+      JOIN pg_class cl  ON cl.oid  = con.conrelid  AND cl.relnamespace  = 'public'::regnamespace
+      JOIN pg_class pcl ON pcl.oid = con.confrelid
+      JOIN pg_attribute att  ON att.attrelid  = con.conrelid  AND att.attnum  = con.conkey[1]
+      JOIN pg_attribute patt ON patt.attrelid = con.confrelid AND patt.attnum = con.confkey[1]
+      WHERE con.contype = 'f' AND cardinality(con.conkey) = 1
+    LOOP
+      IF fk.notnull THEN
+        EXECUTE format(
+          'DELETE FROM public.%I c WHERE c.%I IS NOT NULL AND NOT EXISTS '
+          '(SELECT 1 FROM public.%I p WHERE p.%I = c.%I)',
+          fk.child, fk.child_col, fk.parent, fk.parent_col, fk.child_col);
+      ELSE
+        EXECUTE format(
+          'UPDATE public.%I c SET %I = NULL WHERE c.%I IS NOT NULL AND NOT EXISTS '
+          '(SELECT 1 FROM public.%I p WHERE p.%I = c.%I)',
+          fk.child, fk.child_col, fk.child_col, fk.parent, fk.parent_col, fk.child_col);
+      END IF;
+      GET DIAGNOSTICS n = ROW_COUNT; total := total + n;
+    END LOOP;
+    RAISE NOTICE 'orphan sweep pass % touched % rows', passes, total;
+    EXIT WHEN total = 0 OR passes >= 50;
+  END LOOP;
+END $$;
+ORPHAN
         echo "[startup] upgrading modules: $UP_MODULES (reconcile schema drift)..." \
-          >/home/dev/workspace/upgrade.log
+          >>/home/dev/workspace/upgrade.log
         # --logfile=STDOUT so the real Odoo output (and any crash) lands in
         # upgrade.log for debugging; --stop-after-init exits on completion.
         if docker exec env-odoo bash -lc \
