@@ -22,6 +22,7 @@ import re
 import secrets
 import string
 import subprocess
+import time
 import urllib.request
 import uuid
 from typing import Optional
@@ -197,14 +198,43 @@ def _resolve_odoo_image(source_run_id: Optional[str], s: dict) -> Optional[str]:
     return s.get("odoo_image")
 
 
+def _workspace_name_from_label(label: Optional[str]) -> Optional[str]:
+    """Coerce a human-friendly label (e.g. 'iss-42-fix-login-500') into a
+    Coder-safe workspace name. Coder requires lowercase alnum + hyphens,
+    start/end alnum, <= 32 chars. Returns None when the label is empty / cannot
+    be coerced (caller falls back to the random env id)."""
+    if not label:
+        return None
+    name = label.strip().lower()
+    name = re.sub(r"[^a-z0-9-]+", "-", name)
+    name = re.sub(r"-+", "-", name).strip("-")
+    if not name:
+        return None
+    if len(name) > 32:
+        # keep the leading issue ref intact, truncate the slug tail
+        name = name[:32].rstrip("-")
+    if len(name) < 2:
+        return None
+    return name
+
+
 def create(source_run_id: Optional[str], issue: Optional[str],
            dump_s3_uri: Optional[str], repo_url: Optional[str] = None,
            repo_branch: Optional[str] = None,
-           profile_id: Optional[str] = None) -> str:
+           profile_id: Optional[str] = None,
+           name: Optional[str] = None,
+           upgrade_modules: Optional[str] = None) -> str:
     """Create a Coder workspace for the env. Runs `coder create` with the
     template parameters; the Coder server provisions the EC2 instance and the
-    agent's startup_script boots Odoo. The env id IS the workspace name, so the
-    panel and Coder share one key."""
+    agent's startup_script boots Odoo.
+
+    The env id (random hex) is the internal store key. The Coder *workspace
+    name* defaults to that id, but an optional human-friendly ``name`` (e.g.
+    ``iss-42-fix-login-500``) overrides it so the env is labelled on the Coder
+    dashboard with the issue # + a short slug. ``upgrade_modules`` is a
+    comma-separated list of discovered modules to upgrade at boot (empty/None
+    => ``-u all``), keeping the post-launch schema-reconcile generic across
+    repos instead of hard-scoped to one addons repo."""
     if not config.environments_configured():
         raise RuntimeError(
             "developer environments are not configured (set CODER_URL and "
@@ -228,6 +258,8 @@ def create(source_run_id: Optional[str], issue: Optional[str],
     conf_extra_b64 = base64.b64encode((conf_extra or "").encode()).decode()
 
     env_id = uuid.uuid4().hex[:10]
+    # Coder workspace name: a human-friendly label when given, else the env id.
+    ws_name = _workspace_name_from_label(name) or env_id
     store.create_environment(env_id, source_run_id, issue, dump,
                              repo_url=r_url, repo_branch=r_branch,
                              odoo_image=odoo_img, profile_id=profile_id)
@@ -253,15 +285,166 @@ def create(source_run_id: Optional[str], issue: Optional[str],
          config.get("ODOO_MASTER_PASSWORD", "change_me_master") or "change_me_master"),
         ("odoo_conf_extra_b64", conf_extra_b64),
         ("admin_password", admin_password),
+        # Comma-separated discovered modules to upgrade at boot; empty => -u all
+        # (generic schema-reconcile, not scoped to any one repo).
+        ("upgrade_modules", (upgrade_modules or "").strip()),
     ]
-    args = ["create", "-t", TEMPLATE_NAME, "-y", "--no-wait", env_id]
+    args = ["create", "-t", TEMPLATE_NAME, "-y", "--no-wait", ws_name]
     for k, v in params:
         args += ["--parameter", f"{k}={v}"]
     _run(args, json_out=False, timeout=120)
     pw_arn = _put_password_secret(env_id, admin_password)
-    store.update_environment(env_id, workspace_name=env_id, status="provisioning",
+    store.update_environment(env_id, workspace_name=ws_name, status="provisioning",
                             password_secret=pw_arn)
     return env_id
+
+
+# ---------------------------------------------------------------------------
+# Post-launch hooks (GitHub Actions -> env -> agent)
+# ---------------------------------------------------------------------------
+# After `create` returns the env is provisioning on the Coder server. The
+# GitHub Actions hook waits for the workspace build to finish (so the EC2 agent
+# is up) then runs the boot/startup script to readiness before driving the AI
+# agent (opencode via ralph) inside it over `coder ssh`. These helpers wrap the
+# `coder` CLI; they do NOT mutate infra, so they are safe to run alongside the
+# discover/build/mask pipeline in another process.
+
+def _workspace_status(name: str) -> str:
+    """Latest build status for a workspace name, via the Coder API. Returns
+    'unknown' on any error so the caller can decide whether to keep waiting."""
+    try:
+        ws = _run(["list", "-a", "--search", f"name={name}"], timeout=30)
+    except Exception:  # noqa: BLE001
+        return "unknown"
+    for w in ws if isinstance(ws, list) else []:
+        if w.get("name") == name:
+            return ((w.get("latest_build") or {}).get("status") or "unknown")
+    return "unknown"
+
+
+def wait_for_env(env_id: str, timeout: int = 1200, poll: int = 10) -> bool:
+    """Block until the Coder workspace for ``env_id`` reaches a terminal build
+    state (running / failed / deleted). The env's EC2 instance + Coder agent
+    are up once 'running'; the agent's blocking startup_script (Odoo boot) then
+    continues server-side. Returns True when running, False on timeout or a
+    failed/deleted build. Idempotent + read-only: safe to retry."""
+    env = store.get_environment(env_id)
+    if not env:
+        raise ValueError(f"environment not found: {env_id}")
+    name = env.get("workspace_name") or env_id
+    deadline = time.time() + timeout
+    while True:
+        st = _workspace_status(name)
+        if st in ("running", "failed", "deleted", "canceled", "canceling"):
+            store.update_environment(env_id, status=_STATUS_MAP.get(st, st))
+            return st == "running"
+        if time.time() > deadline:
+            return False
+        time.sleep(poll)
+
+
+def ssh_exec(env_id: str, command: str, timeout: int = 600) -> tuple[int, str]:
+    """Run a single non-interactive command inside the workspace over
+    `coder ssh <ws> -- <cmd>`. Returns (exit_code, combined_output). The
+    workspace is auto-started by the Coder SSH gateway if stopped. The command
+    runs as the agent user (root at boot; the dev user's shell for login cmds)."""
+    env = store.get_environment(env_id)
+    if not env:
+        raise ValueError(f"environment not found: {env_id}")
+    name = env.get("workspace_name") or env_id
+    cmd = ["coder", "ssh", "--wait=yes", name, "--", "bash", "-lc", command]
+    try:
+        p = subprocess.run(cmd, env={**os.environ, **_coder_env()},
+                           capture_output=True, text=True, timeout=timeout, check=False)
+    except subprocess.TimeoutExpired as exc:
+        return 124, (exc.stdout or "") + (exc.stderr or "")
+    except FileNotFoundError as exc:
+        raise RuntimeError("coder CLI not installed on the panel host") from exc
+    return p.returncode, (p.stdout or "") + (p.stderr or "")
+
+
+# Where the project-level system prompt for the AI agent lives. The hook writes
+# the first-phase placeholder here; contents are filled in later. Shipped in
+# the repo so every env loads the same project context.
+AGENT_SYSTEM_PROMPT_PATH = "coder/templates/odoo-synth-env/agent-system-prompt.md"
+
+
+def _write_agent_context(env_id: str, issue: str, task: str, system_prompt: str) -> str:
+    """Stage the project system prompt + issue/task context into the workspace
+    so the agent reads it on start. Returns the remote path written (empty on
+    failure). Best-effort: a failure here only means the agent starts without
+    the curated prompt (it still gets the task string on the ralph command line).
+
+    Two files are written:
+      - /home/dev/workspace/AGENT_CONTEXT.md -- the full context (issue + task +
+        project system prompt). Stable sibling of the repo.
+      - /home/dev/workspace/repo/AGENT.md -- opencode (and Claude Code) read
+        AGENT.md from their cwd as the system prompt. We only create it when the
+        repo does not already ship one, so a repo's own AGENT.md wins. This is
+        what makes the agent *follow* the project context.
+    """
+    import textwrap
+    body = textwrap.dedent(f"""\
+        # odoo-synth agent context (env {env_id})
+
+        ## GitHub issue
+        {issue or '(none)'}
+
+        ## Task
+        {task or '(see the issue above)'}
+
+        ## Project system prompt
+        {system_prompt or '(not configured yet -- fill in coder/templates/odoo-synth-env/agent-system-prompt.md)'}
+        """)
+    b64 = base64.b64encode(body.encode()).decode()
+    # base64 round-trips the body so any quoting in issue/task/system_prompt is
+    # safe through the shell. AGENT.md is written only when absent.
+    remote = "/home/dev/workspace/AGENT_CONTEXT.md"
+    cmd = (
+        "install -d /home/dev/workspace /home/dev/workspace/repo && "
+        f"echo '{b64}' | base64 -d > {remote} && "
+        f"chown dev:dev {remote} 2>/dev/null; "
+        f"if [ ! -f /home/dev/workspace/repo/AGENT.md ]; then "
+        f"cp {remote} /home/dev/workspace/repo/AGENT.md && "
+        "chown dev:dev /home/dev/workspace/repo/AGENT.md 2>/dev/null; fi; true"
+    )
+    rc, out = ssh_exec(env_id, cmd, timeout=60)
+    return remote if rc == 0 else ""
+
+
+def run_agent(env_id: str, task: str, *, agent: str = "opencode",
+               max_iterations: int = 15, issue: Optional[str] = None,
+               system_prompt: Optional[str] = None) -> dict:
+    """Invoke the AI agent inside the launched env via ralph-wiggum (baked into
+    the golden AMI). ralph wraps the agent in an autonomous loop so it keeps
+    working until the task is done (or --max-iterations is hit). Returns a
+    summary dict {exit_code, output, command}.
+
+    - ``agent``: which underlying agent ralph drives (opencode, claude-code,
+      codex, ...). Default opencode (open-source, no per-user API key needed).
+    - ``max_iterations``: ralph autonomy cap.
+    - ``issue``/``system_prompt``: written to AGENT_CONTEXT.md (and AGENT.md in
+      the repo, when the repo ships none) before launch so the agent *follows*
+      the project context. ralph-wiggum (baked into the golden AMI) is attached
+      as the autonomous loop driving ``agent``.
+    """
+    env = store.get_environment(env_id)
+    if not env:
+        raise ValueError(f"environment not found: {env_id}")
+    name = env.get("workspace_name") or env_id
+    _write_agent_context(env_id, issue or "", task, system_prompt or "")
+    # ralph runs as the dev user, cd'd into the cloned addons repo, with the
+    # agent context visible. opencode reads AGENT.md / opencode.json from the
+    # cwd; AGENT_CONTEXT.md is a stable sibling the system prompt points at.
+    safe_task = (task or "").replace("'", "'\"'\"'")
+    cmd = (
+        f"cd /home/dev/workspace/repo 2>/dev/null || cd /home/dev/workspace; "
+        f"sudo -u dev HOME=/home/dev ralph '{safe_task}' "
+        f"--agent {agent} --max-iterations {int(max_iterations)}"
+    )
+    rc, out = ssh_exec(env_id, cmd, timeout=3600)
+    return {"exit_code": rc, "output": out, "command": cmd,
+            "workspace": name, "agent": agent}
 
 
 # Coder workspace build status -> our env status.

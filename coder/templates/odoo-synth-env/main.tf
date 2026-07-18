@@ -170,6 +170,14 @@ data "coder_parameter" "admin_password" {
   order        = 15
 }
 
+data "coder_parameter" "upgrade_modules" {
+  name         = "upgrade_modules"
+  display_name = "Comma-separated discovered modules to upgrade at boot (empty = -u all)."
+  type         = "string"
+  default      = ""
+  order        = 16
+}
+
 # --- Template presets --------------------------------------------------------
 # Presets are auto-generated from the profile store by deploy/_gen_presets.py
 # into presets.tf (one preset per profile that has a built image + a successful
@@ -244,6 +252,7 @@ resource "coder_agent" "main" {
     DB_NAME="${data.coder_parameter.db_name.value}"
     ODOO_MASTER_PASSWORD="${data.coder_parameter.odoo_master_password.value}"
     ODOO_CONF_EXTRA_B64="${data.coder_parameter.odoo_conf_extra_b64.value}"
+    UPGRADE_MODULES="${data.coder_parameter.upgrade_modules.value}"
     ADMIN_PASS="${local.admin_password}"
     WORKSPACE="/home/dev/workspace"
     REPO_DIR="$WORKSPACE/repo"
@@ -465,12 +474,20 @@ PY
         NEED_UPGRADE=0
       fi
       if [ "$NEED_UPGRADE" = "1" ]; then
-        echo "[startup] upgrading all installed modules (reconcile schema drift)..." \
+        # Upgrade target: a comma-separated list of discovered modules passed
+        # in UPGRADE_MODULES (from the profile's discovery), else "all" -- the
+        # generic schema-reconcile that reconciles the cloned addon code's
+        # schema against the restored (masked source) DB. This is NOT
+        # hard-scoped to any one repo: every ERP repo's modules discovered at
+        # build time flow through here the same way.
+        UP_MODULES="$${UPGRADE_MODULES:-all}"
+        [ -z "$$UP_MODULES" ] && UP_MODULES="all"
+        echo "[startup] upgrading modules: $$UP_MODULES (reconcile schema drift)..." \
           >/home/dev/workspace/upgrade.log
         # --logfile=STDOUT so the real Odoo output (and any crash) lands in
         # upgrade.log for debugging; --stop-after-init exits on completion.
         if docker exec env-odoo bash -lc \
-          "cd /opt/odoo-src && PYTHONPATH=/opt/odoo-src python3 odoo-bin -c /etc/odoo/odoo.conf -d $DB_NAME -u all --stop-after-init --logfile=/dev/stdout" \
+          "cd /opt/odoo-src && PYTHONPATH=/opt/odoo-src python3 odoo-bin -c /etc/odoo/odoo.conf -d $DB_NAME -u $$UP_MODULES --stop-after-init --logfile=/dev/stdout" \
           >>/home/dev/workspace/upgrade.log 2>&1; then
           # upgrade SUCCEEDED: mark reconciled so we skip the (slow) upgrade on future boots
           docker exec env-db psql -U odoo -d "$DB_NAME" -c \

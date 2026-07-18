@@ -660,9 +660,48 @@ def cmd_env_create(args) -> int:
     env_id = environments.create(
         args.source_run_id, args.issue, args.dump_s3_uri,
         repo_url=args.repo_url, repo_branch=args.repo_branch,
-        profile_id=args.profile_id)
+        profile_id=args.profile_id,
+        name=args.name, upgrade_modules=args.upgrade_modules)
     print(f"created environment {env_id}")
     return 0
+
+
+def cmd_env_wait(args) -> int:
+    ok = environments.wait_for_env(args.env_id, timeout=args.timeout, poll=args.poll)
+    if ok:
+        print(f"environment {args.env_id} is running")
+        return 0
+    _err(f"environment {args.env_id} did not reach running within {args.timeout}s "
+         "(or the build failed)")
+    return 1
+
+
+def cmd_env_agent(args) -> int:
+    env = store.get_environment(args.env_id)
+    if not env:
+        _err(f"environment not found: {args.env_id}")
+        return 2
+    # system prompt: explicit file wins, else the built-in project prompt shipped
+    # with the repo (provisioned in the first phase; contents filled in later).
+    system_prompt = ""
+    sp = args.system_prompt or str(REPO_ROOT / environments.AGENT_SYSTEM_PROMPT_PATH)
+    try:
+        if sp and Path(sp).exists():
+            system_prompt = Path(sp).read_text()
+    except Exception:  # noqa: BLE001
+        pass
+    issue = args.issue or env.get("issue") or ""
+    res = environments.run_agent(
+        args.env_id, args.task, agent=args.agent,
+        max_iterations=args.max_iterations, issue=issue,
+        system_prompt=system_prompt)
+    print(f"[agent] workspace={res['workspace']} agent={res['agent']} "
+          f"exit={res['exit_code']}")
+    if getattr(args, "json", False):
+        _print_json(res)
+    if res["exit_code"] != 0:
+        _err("agent did not exit cleanly; see output above")
+    return 0 if res["exit_code"] == 0 else 1
 
 
 def cmd_env_show(args) -> int:
@@ -876,7 +915,32 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="explicit s3:// masked dump (optional override)")
     ec.add_argument("--repo-url", default=None)
     ec.add_argument("--repo-branch", default=None)
+    ec.add_argument("--name", default=None,
+                    help="human-friendly Coder workspace name (e.g. iss-42-fix-login). "
+                         "Coerced to [a-z0-9-]; falls back to the random env id when empty.")
+    ec.add_argument("--upgrade-modules", default=None,
+                    help="comma-separated discovered modules to upgrade at boot "
+                         "(empty = -u all, the generic schema-reconcile)")
     ec.set_defaults(func=cmd_env_create)
+
+    ew = esub.add_parser("wait", help="wait for an env's workspace to reach running")
+    ew.add_argument("env_id")
+    ew.add_argument("--timeout", type=int, default=1200,
+                    help="max seconds to wait for the build (default 1200)")
+    ew.add_argument("--poll", type=int, default=10)
+    ew.set_defaults(func=cmd_env_wait)
+
+    ea = esub.add_parser("agent", help="invoke the AI agent (ralph/opencode) inside an env")
+    ea.add_argument("env_id")
+    ea.add_argument("task", help="task string for the agent (e.g. the issue summary)")
+    ea.add_argument("--agent", default="opencode",
+                    help="underlying agent ralph drives (opencode|claude-code|codex|...)")
+    ea.add_argument("--max-iterations", type=int, default=15)
+    ea.add_argument("--issue", default=None, help="github issue ref for context")
+    ea.add_argument("--system-prompt", default=None,
+                    help="path to a project system prompt file (default: built-in)")
+    ea.add_argument("--json", action="store_true", help="print the result as JSON")
+    ea.set_defaults(func=cmd_env_agent)
 
     es = esub.add_parser("show", help="show an environment")
     es.add_argument("env_id")
