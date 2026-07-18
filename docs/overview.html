@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>odoo-synth — One-Pager</title>
+<style>
+  :root{
+    --bg:#0f1420; --panel:#171d2e; --panel2:#1f2740; --ink:#e6ebf5;
+    --mut:#9aa6c0; --acc:#5b8cff; --acc2:#22c1a3; --warn:#f0a93b; --bad:#ff6b6b;
+    --line:#2a3350;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial,sans-serif;line-height:1.45}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 26px 60px}
+  h1{font-size:30px;margin:0 0 4px;letter-spacing:-.5px}
+  .sub{color:var(--mut);font-size:15px;margin:0 0 6px}
+  .tagline{color:var(--acc2);font-weight:600;font-size:15px}
+  .meta{display:flex;gap:18px;flex-wrap:wrap;color:var(--mut);font-size:12.5px;margin:14px 0 4px}
+  .meta b{color:var(--ink);font-weight:600}
+  section{margin:34px 0 0}
+  h2{font-size:19px;margin:0 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:9px}
+  h2 .n{display:inline-block;width:24px;height:24px;border-radius:6px;background:var(--acc);color:#0b0f1a;font-size:13px;font-weight:800;text-align:center;line-height:24px}
+
+  /* ---- Pipeline flow diagram ---- */
+  .flow{display:grid;grid-template-columns:repeat(5,1fr);gap:0;align-items:stretch;margin-top:6px}
+  @media(max-width:980px){.flow{grid-template-columns:1fr;gap:8px}}
+  .flow .step{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 13px;position:relative;display:flex;flex-direction:column}
+  .flow .step:not(:last-child){margin-right:14px}
+  @media(max-width:980px){.flow .step:not(:last-child){margin-right:0}}
+  .flow .arrow{position:absolute;right:-12px;top:50%;transform:translateY(-50%);width:14px;height:2px;background:var(--acc);z-index:2}
+  .flow .arrow::after{content:"";position:absolute;right:-2px;top:-4px;border:5px solid transparent;border-left-color:var(--acc)}
+  @media(max-width:980px){.flow .arrow{display:none}}
+  .flow .step .h{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px;margin-bottom:6px}
+  .flow .step .h .d{width:22px;height:22px;border-radius:6px;background:var(--acc2);color:#0b0f1a;font-size:12px;font-weight:800;text-align:center;line-height:22px}
+  .flow .step .cmd{font-family:ui-monospace,Menlo,monospace;font-size:11.2px;color:var(--acc2);background:var(--panel2);padding:4px 7px;border-radius:6px;margin:7px 0 6px;word-break:break-all}
+  .flow .step ul{margin:0;padding-left:15px;color:var(--mut);font-size:12px}
+  .flow .step ul li{margin:2px 0}
+  .flow .step .out{margin-top:auto;padding-top:8px;font-size:11.7px;color:var(--ink)}
+  .flow .step .out b{color:var(--acc)}
+
+  /* ---- Architecture diagram ---- */
+  .arch{display:grid;grid-template-columns:1.05fr 1.4fr 1fr;gap:16px;margin-top:6px}
+  @media(max-width:980px){.arch{grid-template-columns:1fr}}
+  .col{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+  .col h4{margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--mut)}
+  .node{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:9px 11px;margin:9px 0;font-size:12.7px}
+  .node b{color:var(--ink)}
+  .node .k{color:var(--mut);font-size:11.5px;display:block;margin-top:2px}
+  .node.run{border-color:var(--acc)}
+  .node.ctl{border-color:var(--acc2)}
+  .pill{display:inline-block;font-size:10.5px;padding:2px 7px;border-radius:5px;background:var(--acc2);color:#0b0f1a;font-weight:700;margin-left:6px;vertical-align:1px}
+  .pill.b{background:var(--warn)}
+
+  /* ---- two-col boxes ---- */
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:980px){.two{grid-template-columns:1fr}}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .box h3{margin:0 0 10px;font-size:15px}
+  .box ul{margin:0;padding-left:18px;color:var(--mut);font-size:13px}
+  .box ul li{margin:5px 0}
+  .box ul li b{color:var(--ink)}
+  .box code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:12px;color:var(--acc2)}
+
+  .kvs{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:13px}
+  .kvs .k{color:var(--mut);font-family:ui-monospace,Menlo,monospace;font-size:12px;white-space:nowrap}
+  .kvs .v{color:var(--ink);font-size:12.7px}
+
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin:10px 0 0;font-size:12px;color:var(--mut)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .swatch{width:12px;height:12px;border-radius:3px;display:inline-block}
+  footer{margin-top:40px;color:var(--mut);font-size:12px;border-top:1px solid var(--line);padding-top:14px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>odoo-synth</h1>
+  <p class="sub">Production-masked Odoo dev environments on AWS &middot; one self-contained CLI pipeline</p>
+  <p class="tagline">Prod DB &rarr; PII-masked dump &rarr; provenance-baked image &rarr; isolated Coder workspace (one per GitHub issue)</p>
+  <div class="meta">
+    <span><b>Audience:</b> IT Head &middot; Architect &middot; PM</span>
+    <span><b>Compute:</b> Coder workspaces (no standing cluster)</span>
+    <span><b>Cloud:</b> AWS &mdash; ECR &middot; S3 &middot; EC2</span>
+    <span><b>Interface:</b> <code>odoo-synth</code> CLI</span>
+  </div>
+
+  <!-- =================== 1. THE GOAL =================== -->
+  <section>
+    <h2><span class="n">1</span>What &amp; Why</h2>
+    <div class="two">
+      <div class="box">
+        <h3>The problem it solves</h3>
+        <ul>
+          <li>Dev/test needs <b>realistic data</b>, but prod Odoo DBs are full of PII (partners, employees, payments, chatter).</li>
+          <li>Hand-built dev envs are <b>slow, inconsistent, non-compliant</b> &mdash; every dev reinvents the setup.</li>
+          <li>Reviewing code for a specific issue ideally starts from <b>a clean env seeded with the right schema + data</b>.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>What odoo-synth delivers</h3>
+        <ul>
+          <li>A repeatable pipeline that <b>masks a prod Odoo DB</b> into a safe dump.</li>
+          <li>A <b>provenance-baked Odoo image</b> (core + addons + enterprise pinned to a commit).</li>
+          <li><b>Disposable Coder workspaces</b> &mdash; one per issue &mdash; running Odoo on the masked dump, with the addons repo <b>live-mounted</b> for editing.</li>
+          <li>Full run history, logs, and profiles persisted to <b>S3</b> (shared across machines).</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- =================== 2. THE PIPELINE =================== -->
+  <section>
+    <h2><span class="n">2</span>How it works &mdash; the 5-stage pipeline</h2>
+    <div class="flow">
+      <div class="step">
+        <div class="h"><span class="d">1</span>Profile</div>
+        <div class="cmd">profile create --source-dsn &hellip;</div>
+        <ul>
+          <li>Bind a source Odoo DB (DSN)</li>
+          <li>Pin provenance: core git ref, addons repo, enterprise flag</li>
+        </ul>
+        <div class="arrow"></div>
+        <div class="out">&rarr; <b>profile YAML</b> (S3-mirrored)</div>
+      </div>
+      <div class="step">
+        <div class="h"><span class="d">2</span>Discover</div>
+        <div class="cmd">profile discover &lt;id&gt;</div>
+        <ul>
+          <li>Inspect live DB + addons</li>
+          <li>Detect installed modules, python/apt deps</li>
+        </ul>
+        <div class="arrow"></div>
+        <div class="out">&rarr; <b>discovery.json</b> folded into profile</div>
+      </div>
+      <div class="step">
+        <div class="h"><span class="d">3</span>Build</div>
+        <div class="cmd">profile build &lt;id&gt;</div>
+        <ul>
+          <li>Bake Odoo image: core + addons + enterprise @ pinned ref</li>
+          <li>Provenance-tagged</li>
+        </ul>
+        <div class="arrow"></div>
+        <div class="out">&rarr; <b>ECR image</b></div>
+      </div>
+      <div class="step">
+        <div class="h"><span class="d">4</span>Mask</div>
+        <div class="cmd">run mask --profile &lt;id&gt;</div>
+        <ul>
+          <li>Greenmask over source DB</li>
+          <li>Rulebook: field &rarr; strategy map</li>
+          <li>Neutralize mail/payment</li>
+        </ul>
+        <div class="arrow"></div>
+        <div class="out">&rarr; <b>masked pg_dump in S3</b></div>
+      </div>
+      <div class="step">
+        <div class="h"><span class="d">5</span>Env</div>
+        <div class="cmd">env create --profile-id &hellip;</div>
+        <ul>
+          <li>Coder workspace from ECR image + dump</li>
+          <li>Addons repo live-mounted (RW)</li>
+          <li>Odoo ready on :18069</li>
+        </ul>
+        <div class="out">&rarr; <b>dev workspace</b> (per issue)</div>
+      </div>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--acc2)"></span>Stages 1&ndash;5 are all driven by the <code>odoo-synth</code> CLI</span>
+      <span><span class="swatch" style="background:var(--acc)"></span>Stages 2&middot;3&middot;4 run as <b>ephemeral Coder runner workspaces</b> &mdash; no standing compute</span>
+    </div>
+  </section>
+
+  <!-- =================== 3. ARCHITECTURE =================== -->
+  <section>
+    <h2><span class="n">3</span>Architecture &amp; where each piece lives</h2>
+    <div class="arch">
+      <div class="col">
+        <h4>Your machine / operator</h4>
+        <div class="node"><b>odoo-synth CLI</b><span class="k">cli/odoo-synth &middot; calls backend lib in-process &middot; no HTTP server</span></div>
+        <div class="node"><b>config.yaml</b><span class="k">single source of truth &middot; secrets via <code>{ref: env:&#8230;}</code> / <code>{ref: ssm:&#8230;}</code></span></div>
+        <div class="node"><b>deploy/state.env</b><span class="k">resolved AWS resource ids (ECR, AMI, subnets, SGs&hellip;)</span></div>
+      </div>
+      <div class="col">
+        <h4>AWS &mdash; control plane + ephemeral runners</h4>
+        <div class="node ctl"><b>Coder server</b> <span class="pill">1 EC2</span><span class="k">t3.small &middot; workspace lifecycle control plane &middot; agents dial out :8943</span></div>
+        <div class="node run"><b>Runner workspaces</b> <span class="pill b">ephemeral</span><span class="k">discover / build / mask run here &middot; throwaway local Postgres &middot; result marker &rarr; S3</span></div>
+        <div class="node run"><b>Builder workspace</b> <span class="pill b">ephemeral</span><span class="k">docker build &rarr; push to ECR &middot; unzips enterprise.zip</span></div>
+        <div class="node run"><b>Dev workspace</b> <span class="pill b">per issue</span><span class="k">ECR image + masked dump + addons live-mount &middot; code-server + AI agents</span></div>
+      </div>
+      <div class="col">
+        <h4>AWS &mdash; shared state</h4>
+        <div class="node"><b>ECR</b><span class="k">provenance-baked Odoo images</span></div>
+        <div class="node"><b>S3 (dumps bucket)</b><span class="k">masked pg_dumps &middot; discovery.json &middot; runs + logs &middot; profiles (mirrored)</span></div>
+        <div class="node"><b>Secrets Manager / SSM</b><span class="k">DB passwords, git tokens, admin/master pw</span></div>
+        <div class="node"><b>IAM</b><span class="k">coder-role + env instance profile (S3 dump + ECR pull)</span></div>
+      </div>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--acc2)"></span>Control plane (standing)</span>
+      <span><span class="swatch" style="background:var(--acc)"></span>Ephemeral Coder workspaces (on-demand)</span>
+      <span><span class="swatch" style="background:var(--warn)"></span>Shared state / secrets</span>
+    </div>
+  </section>
+
+  <!-- =================== 4. MASKING =================== -->
+  <section>
+    <h2><span class="n">4</span>The masking rulebook (the real deliverable)</h2>
+    <div class="two">
+      <div class="box">
+        <h3>What it is</h3>
+        <ul>
+          <li>A maintained <b>YAML map of which Odoo fields are sensitive</b>, by app area (core, accounting, HR, messaging, sales&hellip;).</li>
+          <li>Each field is assigned a <b>masking strategy</b> from a fixed vocabulary (<code>fake_*</code>, <code>redact_freetext</code>, null, preserve&hellip;).</li>
+          <li>Engine = Greenmask's <code>anon</code> extension; odoo-synth owns <b>the map, not the engine</b>.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>How leakage is closed</h3>
+        <ul>
+          <li><b>Pattern backstop</b> &mdash; column-name regex rules catch Odoo's denormalized <code>*_display_name</code> / cache columns across 876+ models (the #1 leak surface).</li>
+          <li><b>Free-text redaction</b> for chatter/mail/cache fields that can hold a person OR company name.</li>
+          <li><b>System secrets neutralized</b> &mdash; API keys, SMTP creds, payment providers, mail/fetchmail toggled off.</li>
+          <li><b>Module-metadata scrub</b> &mdash; org-name leaks in <code>ir.module.module.author</code> + report templates.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- =================== 5. WHAT'S ACHIEVED =================== -->
+  <section>
+    <h2><span class="n">5</span>What is achieved</h2>
+    <div class="two">
+      <div class="box">
+        <h3>For the business</h3>
+        <ul>
+          <li><b>Compliance</b> &mdash; no PII leaves prod; devs work on masked data.</li>
+          <li><b>Reproducibility</b> &mdash; every env is a pinned image + a known dump; identical across devs.</li>
+          <li><b>Speed</b> &mdash; a new dev workspace for an issue is a one-command launch, not a half-day setup.</li>
+          <li><b>Auditability</b> &mdash; runs + logs + profiles in S3, replayable via the CLI.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>For engineering</h3>
+        <ul>
+          <li><b>Zero standing compute</b> &mdash; legacy ECS/Fargate removed; Coder workspaces spin up/down on demand.</li>
+          <li><b>One config source of truth</b> (<code>config.yaml</code>) &mdash; no duplication, secrets delegated to env/SSM.</li>
+          <li><b>One CLI is the whole UI</b> &mdash; no web server to host/maintain; Coder dashboard for workspace launch.</li>
+          <li><b>Provenance pinned</b> &mdash; core + addons + enterprise @ exact commit, so restored schema matches running code.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- =================== 6. REPO MAP =================== -->
+  <section>
+    <h2><span class="n">6</span>Repo map</h2>
+    <div class="box">
+      <div class="kvs">
+        <span class="k">cli/odoo-synth</span><span class="v">The CLI &mdash; the entire user interface (calls backend in-process, no HTTP)</span>
+        <span class="k">controlpanel/backend/</span><span class="v">Reusable library: profiles, discovery, build, pipeline (mask), environments, stores</span>
+        <span class="k">masker/</span><span class="v">Greenmask image + masking rules + per-profile rule YAMLs</span>
+        <span class="k">masker/rules/</span><span class="v">The rulebook: numbered YAML files mapping Odoo fields &rarr; masking strategies</span>
+        <span class="k">coder/templates/</span><span class="v">Coder Terraform templates: odoo-synth-env (dev) + odoo-synth-builder (image bake)</span>
+        <span class="k">odoo/</span><span class="v">Odoo image build context (Dockerfile, odoo.conf, entrypoint) + enterprise.zip (gitignored)</span>
+        <span class="k">deploy/</span><span class="v">Infra + provisioning scripts (ECR, base images, builder IAM, Coder server, template publish)</span>
+        <span class="k">config.yaml</span><span class="v">Single source of truth (gitignored &mdash; secrets)</span>
+        <span class="k">profiles/*.yaml</span><span class="v">One YAML per profile (S3-mirrored; local cache)</span>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>odoo-synth &mdash; prod-masked Odoo dev environments on AWS</span>
+    <span>One-pager for IT Head / Architect / PM</span>
+  </footer>
+</div>
+</body>
+</html>
