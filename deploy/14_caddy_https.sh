@@ -117,3 +117,51 @@ REMOTE
 
 log "HTTPS is live at https://$HOSTNAME/ (Coder HTTP on :8943 untouched)."
 log "Point config.yaml / webhooks at: https://$HOSTNAME"
+
+# ---------------------------------------------------------------------------
+# 2. install the GitHub-IP auto-refresh renderer + a systemd timer (every 6h +
+#    2min after boot). The renderer fetches api.github.com/meta, re-renders the
+#    Caddyfile, and reloads Caddy ONLY when the ranges changed (idempotent). On
+#    a fetch failure it keeps the existing allowlist (fail-closed/stale > broken).
+#    The renderer becomes the source of truth for the Caddyfile, so the inline
+#    one above is just the bootstrap.
+# ---------------------------------------------------------------------------
+log "installing GitHub-IP auto-refresh (refresh-github-ips.timer, every 6h) ..."
+scp "${SSH_OPTS[@]}" "$HERE/deploy/refresh/refresh_github_ips.py" \
+  "$SSH_TARGET:/tmp/refresh_github_ips.py" 2>/dev/null \
+  || rsync -e "ssh ${SSH_OPTS[*]}" -q "$HERE/deploy/refresh/refresh_github_ips.py" \
+       "$SSH_TARGET:/tmp/refresh_github_ips.py"
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "bash -s" -- "$HOSTNAME" "$PORT" <<'REMOTE'
+set -euo pipefail
+HOSTNAME="$1"; PORT="$2"; CODER_IP="$(echo "$HOSTNAME" | sed -E 's/^coder\.([0-9.]+)\.nip\.io$/\1/')"
+sudo install -m 0755 /tmp/refresh_github_ips.py /usr/local/sbin/refresh_github_ips.py
+sudo tee /etc/caddy/refresh.env >/dev/null <<EOF
+CODER_SERVER_IP=$CODER_IP
+CADDY_HOSTNAME=$HOSTNAME
+WEBHOOK_PORT=$PORT
+EOF
+sudo tee /etc/systemd/system/refresh-github-ips.service >/dev/null <<UNIT
+[Unit]
+Description=Refresh GitHub hook IP ranges in the Caddy Caddyfile
+After=network-online.target caddy.service
+Wants=network-online.target
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/caddy/refresh.env
+ExecStart=/usr/local/sbin/refresh_github_ips.py
+UNIT
+sudo tee /etc/systemd/system/refresh-github-ips.timer >/dev/null <<TIMER
+[Unit]
+Description=Refresh GitHub hook IP ranges every 6h
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=6h
+Persistent=true
+[Install]
+WantedBy=timers.target
+TIMER
+sudo systemctl daemon-reload
+sudo systemctl enable --now refresh-github-ips.timer >/dev/null 2>&1
+sudo systemctl start refresh-github-ips.service || true
+echo "refresh timer: $(systemctl is-active refresh-github-ips.timer)"
+REMOTE
