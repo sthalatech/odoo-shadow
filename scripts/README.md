@@ -1,53 +1,100 @@
-# scripts/ — issue-driven env launcher
+# scripts/ — issue -> env + agent
 
-## issue_to_env.py
+Two pieces that turn a GitHub issue (opened in a **profile's addons repo**)
+into a running odoo-synth env with an AI agent working on it:
 
-Entry point for the GitHub Actions hook in `.github/workflows/issue-env.yml`.
-It runs on the **self-hosted `odoo-synth` runner** (the VM with the
-`odoo-synth` CLI + `coder` + `awscli` installed).
+1. `webhook_listener.py` — a Flask app that **runs on the Coder server**
+   (the always-on control plane), receives GitHub `issues` webhooks, verifies
+   the HMAC signature, and launches the runner.
+2. `issue_to_env.py` — the host-agnostic launcher: matches the issue's repo URL
+   to an odoo-synth profile (the latest preset for that repo) -> creates a Coder
+   env from the profile's latest mask run -> labels it `iss-<n>-<slug>` -> drives
+   opencode via ralph-wiggum with the issue details + project system prompt.
 
-Flow (one issue opened → one env + one agent run):
+## Design (why the Coder server, not a dev VM)
 
-1. **Match preset from repo URL.** Normalize the issue's repo URL and match it
-   against every profile's `addons_git_url` (SSH/HTTPS both normalize to
-   `host/org/repo`). Pick the matching profile with a built image (`ready`).
-   This is the same preset the Coder dashboard offers for that repo.
-2. **Label the env.** Workspace name = `iss-<number>-<short-title-slug>`
-   (e.g. `iss-42-fix-login-500`), so the env is labelled with the issue # + a
-   short name on the Coder dashboard.
-3. **Create the env** from the profile's latest successful **mask run** (masked
-   dump in S3) via `environments.create(...)` → `coder create -t odoo-synth-env`.
-   Passes `upgrade_modules` (the profile's discovered modules) so the
-   post-launch `odoo-bin -u` reconciles the addon code schema against the
-   masked source DB — **generic for any repo**, not hard-scoped to one.
-4. **Wait** for the workspace build to reach `running`.
-5. **Invoke the agent** inside the env via **ralph-wiggum** (baked into the
-   golden AMI) driving **opencode** by default. The issue details are the task;
-   the project system prompt (`agent-system-prompt.md`) + issue context are
-   staged as `AGENT_CONTEXT.md` and (if the repo ships none) `AGENT.md` in the
-   repo, so the agent *follows* the project context.
+```
+   GitHub issue opened                Coder server (always-on EC2)
+   in the addons repo   ──webhook──▶  webhook_listener.py (port 8080, public)
+   (e.g. erp.life.in)                     │
+                                          │ spawns issue_to_env.py
+                                          ▼
+                                     match repo URL -> profile (S3)
+                                     latest mask run -> `coder create`
+                                     wait -> ralph opencode (in the new env)
+```
 
-### Env vars
+- The Coder server is the only always-on box; a dev VM is ephemeral, so a
+  webhook must not land on a dev VM.
+- The Coder server already holds `CODER_URL` + `CODER_SESSION_TOKEN` and can
+  reach `coder create` on localhost.
+- Its AWS role has access to the dumps bucket, so it reads the **S3-backed
+  profile + run stores** (the preset resolver) without this dev VM being up.
+- The "latest preset for that repo" is resolved from the profile store (S3),
+  not the Coder preset API — `coder_workspace_preset` is a Terraform-side
+  dashboard construct that does not surface as an API resource, so we resolve
+  presets ourselves by repo-URL match + newest successful mask run.
 
-| var | meaning | default |
-|---|---|---|
-| `ISSUE_NUMBER` / `ISSUE_TITLE` / `ISSUE_BODY` / `ISSUE_URL` | issue payload | — |
-| `ISSUE_REPO_URL` | addons repo URL to match a profile | — |
-| `ODOO_SYNTH_AGENT` | agent ralph drives | `opencode` |
-| `ODOO_SYNTH_MAX_ITER` | ralph autonomy cap | `15` |
-| `ODOO_SYNTH_UPGRADE_MODULES` | override post-launch upgrade list | profile-discovered |
-| `ODOO_SYNTH_BRANCH_HINT` | override addons branch | profile ref |
-| `ODOO_SYNTH_WAIT_TIMEOUT` | seconds to wait for `running` | `1200` |
-| `AWS_*` / `CODER_URL` / `CODER_SESSION_TOKEN` | env control plane | runner env / secrets |
+## Flow in detail (matches the 6 requirements)
 
-### Exit codes
+1. **Issue -> env, preset matched from repo URL.** `issue_to_env.py`
+   normalizes the issue's repo URL (`git@...` and `https://...` both ->
+   `host/org/repo`) and matches it to a profile's `addons_git_url`. It then
+   creates the env from that profile's latest successful **mask run** (the
+   masked dump). This is the same inputs the Coder dashboard preset carries.
+2. **Label with issue # + short name.** Coder workspace name =
+   `iss-<number>-<short-title-slug>` (e.g. `iss-42-fix-login-500`).
+3. **Invoke opencode in the env with issue details.** `wait_for_env` polls the
+   build to `running`, then `run_agent` runs
+   `ralph "<task>" --agent opencode --max-iterations N` over `coder ssh`, the
+   task being the issue title/body/URL.
+4. **ralph-wiggum attached.** ralph (baked into the golden AMI) is the
+   autonomous loop driving opencode; `--agent` can switch to claude-code/etc.
+5. **System prompt provision (Phase 1).**
+   `coder/templates/odoo-synth-env/agent-system-prompt.md` is the placeholder,
+   staged into the env as `AGENT_CONTEXT.md` and (if the repo ships none)
+   `AGENT.md` in the repo cwd so the agent follows the project context.
+6. **Post-launch module upgrade, generic for any repo.** The template's
+   `odoo-bin -u all` is now `-u $UPGRADE_MODULES` (defaults to `all`). The
+   hook passes the profile's discovered `installed_modules`, so the
+   schema-reconcile is scoped per repo, not hardcoded to one.
 
-`0` env + agent launched · `1` no matching profile/dump · `2` env create failed ·
-`3` env not running in time · `4` agent launch failed.
+## Deploy (one-time, from a host with AWS access)
 
-### Manual / CLI use
+```bash
+deploy/13_webhook_listener.sh --secret <GITHUB_WEBHOOK_SECRET> [--port 8080]
+```
 
-The same primitives are exposed on the CLI for ad-hoc use:
+This opens a 2nd inbound port on the Coder SG, ships the repo to the Coder
+server over SSH, installs `webhook_listener.py` as a systemd service, and writes
+`GITHUB_WEBHOOK_SECRET` to `/etc/odoo-synth/webhook.env`.
+
+Then in the **addons repo** (the profile repo, e.g. `erp.life.in`):
+Settings -> Webhooks -> Add webhook:
+- Payload URL: `http://<CODER_SERVER_IP>:8080/webhook`
+- Content type: `application/json`
+- Events: **Issues**
+- Secret: the same `GITHUB_WEBHOOK_SECRET`
+
+Manage on the Coder server:
+```bash
+ssh ubuntu@<CODER_SERVER_IP>
+systemctl status odoo-synth-webhook
+journalctl -u odoo-synth-webhook -f
+```
+
+## Config (`config.yaml`, optional)
+
+```yaml
+github:
+  webhook_secret: { ref: env:GITHUB_WEBHOOK_SECRET }  # or a literal
+  # webhook_secret_env: GITHUB_WEBHOOK_SECRET  # alt: name an env var
+```
+
+If unset, `deploy/13_webhook_listener.sh --secret ...` sets it directly on the
+server; the service is fail-closed (rejects all POSTs) until a secret exists.
+
+## Manual / CLI use (same primitives, ad-hoc)
 
 ```bash
 odoo-synth env create --profile-id <id> --source-run-id <run> \
@@ -56,4 +103,12 @@ odoo-synth env wait <env_id> --timeout 1200
 odoo-synth env agent <env_id> "Resolve #42: fix the login 500" --agent opencode --issue "#42"
 ```
 
-See `.github/workflows/issue-env.yml` for the webhook wiring.
+`scripts/issue_to_env.py` is also runnable standalone with env vars
+(`ISSUE_NUMBER`, `ISSUE_TITLE`, `ISSUE_BODY`, `ISSUE_URL`, `ISSUE_REPO_URL`,
+`ODOO_SYNTH_AGENT`, `ODOO_SYNTH_MAX_ITER`, `ODOO_SYNTH_UPGRADE_MODULES`,
+`ODOO_SYNTH_BRANCH_HINT`) — that's exactly what the listener spawns.
+
+## Exit codes (issue_to_env.py)
+
+`0` env + agent launched · `1` no matching profile/dump · `2` env create failed
+· `3` env not running in time · `4` agent launch failed.

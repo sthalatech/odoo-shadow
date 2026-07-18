@@ -137,3 +137,13 @@ environments:
 # Resolved at install time into deploy/state.env (do not hand-edit here).
 # These are written by the deploy scripts; listed for documentation only.
 # state: { coder_url: "", env_ami_id: "", env_sg_id: "", env_subnet_id: "", env_instance_profile: "" }
+
+# ---------------------------------------------------------------------------
+# GitHub issue -> env webhook (deploy/13_webhook_listener.sh).
+# The webhook listener runs ON THE CODER SERVER and receives `issues` events
+# from the profile's addons repo. The secret is the HMAC key GitHub signs the
+# webhook body with; it must match the Secret field in the repo's webhook
+# config on GitHub. Use the ref:env form so the secret never lives in this file.
+github:
+  webhook_secret: { ref: env:GITHUB_WEBHOOK_SECRET }
+  # webhook_secret_env: GITHUB_WEBHOOK_SECRET   # alt: name an env var holding it
