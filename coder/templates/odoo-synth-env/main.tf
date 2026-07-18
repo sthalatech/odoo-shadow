@@ -467,14 +467,25 @@ PY
       if [ "$NEED_UPGRADE" = "1" ]; then
         echo "[startup] upgrading all installed modules (reconcile schema drift)..." \
           >/home/dev/workspace/upgrade.log
-        docker exec env-odoo bash -lc \
-          "cd /opt/odoo-src && PYTHONPATH=/opt/odoo-src python3 odoo-bin -c /etc/odoo/odoo.conf -d $DB_NAME -u all --stop-after-init --logfile=/dev/null" \
-          >>/home/dev/workspace/upgrade.log 2>&1 || true
-        # mark the schema reconciled so we don't re-run the (slow) upgrade on every boot
-        docker exec env-db psql -U odoo -d "$DB_NAME" -c \
-          "CREATE TABLE IF NOT EXISTS env_schema_reconciled (id integer primary key, done_at timestamp default now()); \
-           INSERT INTO env_schema_reconciled(id) VALUES (1) ON CONFLICT (id) DO NOTHING;" \
-          >/dev/null 2>&1 || true
+        # --logfile=STDOUT so the real Odoo output (and any crash) lands in
+        # upgrade.log for debugging; --stop-after-init exits on completion.
+        if docker exec env-odoo bash -lc \
+          "cd /opt/odoo-src && PYTHONPATH=/opt/odoo-src python3 odoo-bin -c /etc/odoo/odoo.conf -d $DB_NAME -u all --stop-after-init --logfile=/dev/stdout" \
+          >>/home/dev/workspace/upgrade.log 2>&1; then
+          # upgrade SUCCEEDED: mark reconciled so we skip the (slow) upgrade on future boots
+          docker exec env-db psql -U odoo -d "$DB_NAME" -c \
+            "CREATE TABLE IF NOT EXISTS env_schema_reconciled (id integer primary key, done_at timestamp default now()); \
+             INSERT INTO env_schema_reconciled(id) VALUES (1) ON CONFLICT (id) DO NOTHING;" \
+            >/dev/null 2>&1 || true
+          echo "[startup] upgrade succeeded, schema reconciled" >>/home/dev/workspace/upgrade.log
+        else
+          # upgrade FAILED: do NOT set the marker -- the next boot will retry.
+          # Common cause: a masked column collides on a code-defined unique
+          # index Odoo creates at _auto_init (e.g. act_window_view_unique_mode
+          # on ir_act_window_view.view_mode). Fix the masker + re-mask, don't
+          # paper over it. Keep env-odoo up so logs are reachable.
+          echo "[startup] UPGRADE FAILED -- schema NOT reconciled; will retry next boot. See upgrade.log." >>/home/dev/workspace/upgrade.log
+        fi
         chown dev:dev /home/dev/workspace/upgrade.log 2>/dev/null || true
         docker restart env-odoo >/dev/null 2>&1 || true
       fi

@@ -113,6 +113,12 @@ _TEXT_TYPES = {"text", "character varying", "varchar", "char", "character"}
 _SKIP_COLUMNS = {
     "state", "lang", "tz", "active", "color", "type", "res_model", "model",
     "ref", "code", "currency", "website_url",
+    # Odoo view/action metadata enums -- values are small fixed vocabularies
+    # (tree,form / kanban / form / graph,...). Masking collapses them to a few
+    # shapes -> duplicates -> collides on code-defined unique index
+    # act_window_view_unique_mode_per_action (ir_actions._auto_init), crashing
+    # `odoo -u`. Not PII.
+    "view_mode", "view_type", "binding_type", "usage",
     # structural materialized path on any _parent_store model (e.g. "1/5/"):
     # Odoo splits it and casts each segment with int() -> hashing it 500s.
     "parent_path",
@@ -153,8 +159,10 @@ _SKIP_TABLES = {
     "ir_model_data", "ir_model", "ir_model_fields", "ir_model_fields_selection",
     "ir_model_relation", "ir_model_constraint", "ir_module_module",
     "ir_module_module_dependency", "ir_translation", "ir_ui_view", "ir_ui_menu",
-    "ir_actions", "ir_act_window", "ir_act_server", "ir_cron", "ir_rule",
+    "ir_actions", "ir_act_window", "ir_act_window_view", "ir_act_server",
+    "ir_act_report", "ir_act_url", "ir_act_client", "ir_cron", "ir_rule",
     "ir_config_parameter", "ir_model_access", "res_groups",
+    "ir_filters", "ir_logging",
     # credentials -- neutralized by the masker
     "ir_mail_server", "fetchmail_server", "payment_provider",
     # core reference / locale / config data -- seeded from Odoo XML, parsed by
