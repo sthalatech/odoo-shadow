@@ -838,13 +838,12 @@ EISVC
 - superpowers -- agentic-skills plugin (TDD, planning, git-worktrees, code review) loaded for both
               claude and opencode. It drives the agent autonomously through a task: brainstorm ->
               plan -> worktree -> TDD subagent dev -> review -> finish branch (merge/PR).
-- obscura  -- headless browser for when you need to view a web page or test Odoo UI. See AGENT_CONTEXT.md.
+- chrome   -- headless Chrome for Testing. View a page / test Odoo UI AND capture PNG screenshots. See AGENT_CONTEXT.md.
 
 ## When you need a browser
-Do NOT launch a GUI browser. Use obscura (installed on the AMI):
-- Fetch a page: `obscura fetch http://127.0.0.1:18069/web/login --dump html`
-- Get text/title: `obscura fetch <url> --dump text` or `--eval "document.title"`
-- CDP server (Puppeteer/Playwright): `obscura serve --port 9222` then connect to ws://127.0.0.1:9222
+Do NOT launch a GUI browser. Use headless Chrome for Testing (installed on the AMI as `chrome`):
+- Render a page to HTML: `chrome --headless=new --no-sandbox --disable-gpu --dump-dom http://127.0.0.1:18069/web/login`
+- Capture a PNG screenshot: `chrome --headless=new --no-sandbox --disable-gpu --hide-scrollbars --window-size=1280,800 --screenshot=out.png http://127.0.0.1:18069/<route>`
 CMDOC
       chown dev:dev /home/dev/workspace/CLAUDE.md 2>/dev/null || true
 

@@ -21,8 +21,10 @@ database, with an addons repo live-mounted for development.
     Claude Code and OpenCode. It drives the agent autonomously through a task:
     brainstorm -> plan -> git-worktree -> TDD subagent dev -> review -> finish
     branch (merge/PR). No external loop needed.
-  - **Obscura** — `obscura`, a lightweight headless browser for when the agent
-    needs to view a web page or test the Odoo UI: `obscura fetch <url> --dump html`.
+  - **Headless Chrome for Testing** — `chrome`, the agent's browser for viewing
+    a page, testing the Odoo UI, and capturing PNG screenshots as PR evidence:
+    `chrome --headless=new --no-sandbox --dump-dom <url>` (HTML) and
+    `chrome --headless=new --no-sandbox --screenshot=out.png <url>` (PNG).
 
 ## Create with the preset
 

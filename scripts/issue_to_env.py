@@ -100,7 +100,7 @@ def _build_task(issue_ref: str, title: str, url: str, body: str,
          system prompt + this task as /home/dev/workspace/AGENT_CONTEXT.md
          (and AGENT.md in the repo cwd when the repo ships none). The agent
          MUST read AGENT_CONTEXT.md / AGENT.md before doing anything else --
-         they carry the commit/push/PR mandate, the obscura-browser guidance,
+         they carry the commit/push/PR mandate, the browser guidance,
          and the env layout. superpowers' brainstorming skill checklist ends
          at "transition to implementation" and does NOT include finishing the
          branch, so the mandate has to be in the task itself, not just the
@@ -108,8 +108,9 @@ def _build_task(issue_ref: str, title: str, url: str, body: str,
       B. Make the finish step an explicit, final, non-optional part of the
          task: commit on a new branch, push, and `gh pr create --base <pr_base>`
          with "Resolves #N". Do not stop until the PR is created.
-      +  Verify the change visually with obscura (the headless browser on the
-         AMI) and save a screenshot, so the PR has evidence the UI works.
+      +  Verify the change visually with headless Chrome for Testing (the
+         headless browser on the AMI) and save a screenshot, so the PR has
+         evidence the UI works.
 
     The PR base branch is per-profile (profile.pr_base, default uat) so each
     repo lands on its own integration branch without the agent guessing.
@@ -129,7 +130,7 @@ def _build_task(issue_ref: str, title: str, url: str, body: str,
         First, read your operating instructions: open and read
         /home/dev/workspace/AGENT_CONTEXT.md and /home/dev/workspace/repo/AGENT.md
         (if it exists) in your cwd. They contain the project system prompt, the
-        commit/push/PR mandate, the obscura-browser guidance, and the env layout
+        commit/push/PR mandate, the browser guidance, and the env layout
         (Odoo on 127.0.0.1:18069, repo at /home/dev/workspace/repo). Do NOT skip
         this and do NOT rely solely on the superpowers brainstorming checklist --
         that checklist ends at "transition to implementation" and does NOT include
@@ -140,16 +141,17 @@ def _build_task(issue_ref: str, title: str, url: str, body: str,
         2. Make the smallest correct change in the addons repo.
         3. Reload + upgrade Odoo: `docker restart env-odoo` then
            `docker exec env-odoo odoo -d odoo -u <addon> --stop-after-init`.
-        4. VERIFY VISUALLY with obscura (the headless browser; do NOT launch a
-           GUI browser). Navigate to the Odoo page(s) your change affects and
-           take a screenshot as evidence:
-             obscura fetch http://127.0.0.1:18069/web/login --dump html
-             obscura fetch http://127.0.0.1:18069/<your-route> --wait-until networkidle0
-           Save a screenshot of the changed view (e.g. to
-           /home/dev/workspace/repo/docs/issue-{issue_ref}-after.png or under
-           ./) and reference it in the PR body. If obscura cannot capture an
-           image for this route, say so explicitly in your final summary instead
-           of silently skipping the check.
+        4. VERIFY VISUALLY with headless Chrome for Testing (do NOT launch a
+           GUI browser). The `chrome` binary is on PATH. Render the page to
+           HTML and capture a PNG screenshot of the changed view as evidence:
+             chrome --headless=new --no-sandbox --disable-gpu --dump-dom http://127.0.0.1:18069/web/login
+             chrome --headless=new --no-sandbox --disable-gpu --hide-scrollbars --window-size=1280,800 \
+               --screenshot=/home/dev/workspace/repo/docs/issue-{issue_ref}-after.png http://127.0.0.1:18069/<your-route>
+           Save the screenshot under the repo (e.g.
+           /home/dev/workspace/repo/docs/issue-{issue_ref}-after.png) and
+           reference its path in the PR body. If the change has no UI surface
+           (pure model/data change), say so explicitly in your final summary
+           instead of silently skipping the screenshot.
         5. FINISH — commit, push, and open a PR. This is mandatory and is the
            last step; do not stop after verifying:
              a. Commit on a NEW branch (do not commit directly to {pr_base}).

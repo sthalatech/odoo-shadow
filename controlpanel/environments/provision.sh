@@ -104,23 +104,48 @@ OCJSON
 mkdir -p /opt/.claude/plugins
 ln -sfn "$SUPERPOWERS_DIR" /opt/.claude/plugins/superpowers
 
-# --- Obscura (headless browser for AI agents; prebuilt static Rust binary) --
-# https://github.com/h4ckf0r0day/obscura  -- a lightweight headless browser
-# engine (CDP + Puppeteer/Playwright-compatible). The agent uses it instead of
-# a GUI browser to view pages / test Odoo UI. Release tarball ships two static
-# binaries (obscura + obscura-worker); keep them in the same dir.
-OBSCURA_DIR="/opt/obscura"
-mkdir -p "$OBSCURA_DIR"
+# --- Headless Chrome for Testing (the agent's browser: scrape + screenshot) --
+# https://googlechromelabs.github.io/chrome-for-testing/  -- Google publishes
+# pinned, headless-capable Chrome for Testing builds as plain zips (no npm/
+# puppeteer needed). The agent uses this for BOTH legs of web verification:
+#   - scrape/verify a page:  chrome --headless=new --dump-dom <url>     (rendered HTML)
+#   - capture a PNG evidence: chrome --headless=new --screenshot=out.png <url>
+# One tool does both. (We previously shipped obscura here, but obscura has no
+# layout/paint engine -- Page.captureScreenshot is unimplemented, see upstream
+# issues #52/#121/#123 -- so it cannot take screenshots at all. Chrome for
+# Testing does both jobs, so we use it instead of maintaining two browsers.)
+# System shared libs Chrome needs (X11/cairo/pango/nss/alsa/...). --no-install-
+# recommends keeps the image lean; the t64/-0t64 package names are the 24.04
+# time64 transition -- apt resolves either spelling, so list both where they
+# differ and let apt skip the missing one.
+apt-get install -y --no-install-recommends \
+    libx11-6 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxi6 \
+    libxrandr2 libxrender1 libxtst6 libxss1 libxkbcommon0 \
+    libnss3 libcups2 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 \
+    libatspi2.0-0 libgbm1 libpango-1.0-0 libcairo2 libfontconfig1 \
+    libfreetype6 libasound2 libasound2t64 \
+    fonts-liberation fonts-dejavu-core 2>/dev/null || true
+CHROME_DIR="/opt/chrome-for-testing"
+mkdir -p "$CHROME_DIR"
 ARCH="$(uname -m)"
 case "$ARCH" in
-  x86_64)  OBSCURA_ARCH="x86_64" ;;
-  aarch64) OBSCURA_ARCH="aarch64" ;;
-  *) echo "unsupported arch $ARCH for obscura" >&2; OBSCURA_ARCH="" ;;
+  x86_64)  CFT_ARCH="linux64"   ; CFT_BIN="chrome-linux64/chrome" ;;
+  aarch64) echo "chrome-for-testing has no arm64 build for the pinned version; skipping" >&2; CFT_ARCH="" ;;
+  *) echo "unsupported arch $ARCH for chrome-for-testing" >&2; CFT_ARCH="" ;;
 esac
-if [ -n "$OBSCURA_ARCH" ]; then
-  curl -fsSL "https://github.com/h4ckf0r0day/obscura/releases/latest/download/obscura-${OBSCURA_ARCH}-linux.tar.gz"     -o /tmp/obscura.tar.gz &&   tar -xzf /tmp/obscura.tar.gz -C "$OBSCURA_DIR" && rm -f /tmp/obscura.tar.gz
-  ln -sf "$OBSCURA_DIR/obscura" /usr/local/bin/obscura
-  ln -sf "$OBSCURA_DIR/obscura-worker" /usr/local/bin/obscura-worker 2>/dev/null || true
+if [ -n "$CFT_ARCH" ]; then
+  # Pin a known-good version (Google's last-known-good JSON). Pinned so a bake
+  # is reproducible; bump deliberately. URL shape:
+  #   .../chrome-for-testing-public/<ver>/$CFT_ARCH/chrome-linux64.zip
+  CFT_VERSION="131.0.6778.204"
+  CFT_URL="https://storage.googleapis.com/chrome-for-testing-public/${CFT_VERSION}/${CFT_ARCH}/chrome-linux64.zip"
+  curl -fsSL "$CFT_URL" -o /tmp/chrome-cft.zip && \
+    unzip -q /tmp/chrome-cft.zip -d "$CHROME_DIR" && rm -f /tmp/chrome-cft.zip
+  # chrome-linux64/chrome is the binary; symlink it onto PATH as `chrome`.
+  ln -sf "$CHROME_DIR/$CFT_BIN" /usr/local/bin/chrome
+  chmod +x "$CHROME_DIR/$CFT_BIN"
+  # Convenience alias `headless-chrome` for docs that say that.
+  ln -sf /usr/local/bin/chrome /usr/local/bin/headless-chrome
 fi
 
 # A dedicated unprivileged developer user owns the workspace and runs Odoo.
@@ -133,7 +158,7 @@ install -d -o dev -g dev /home/dev/.local/bin
 ln -sf /usr/local/bin/claude   /home/dev/.local/bin/claude
 ln -sf /usr/local/bin/opencode /home/dev/.local/bin/opencode
 ln -sf /usr/local/bin/bun      /home/dev/.local/bin/bun
-ln -sf /usr/local/bin/obscura  /home/dev/.local/bin/obscura 2>/dev/null || true
+ln -sf /usr/local/bin/chrome   /home/dev/.local/bin/chrome 2>/dev/null || true
 # Make the global opencode.json (superpowers plugin) + Claude plugin symlink
 # visible to the dev user's home so both agents load superpowers at session start.
 install -d -o dev -g dev /home/dev/.config/opencode /home/dev/.claude/plugins

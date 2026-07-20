@@ -26,33 +26,30 @@ branch (merge/PR). Follow its methodology.
 - Tail logs: `docker logs -f env-odoo`
 - psql: `docker exec -it env-db psql -U odoo -d odoo`
 
-## Browser — use obscura, never a GUI browser
+## Browser — use headless Chrome for Testing, never a GUI browser
 
-Do NOT launch a GUI browser (Chrome/Firefox). Use **obscura** (installed on the
-AMI) to view pages or test the Odoo UI:
+Do NOT launch a GUI browser. Use **headless Chrome for Testing** (installed on
+the AMI as `chrome`) to view pages, test the Odoo UI, and capture screenshots.
+It does both jobs — scraping and screenshots — in one tool:
 
-- Fetch a page as HTML: `obscura fetch http://127.0.0.1:18069/web/login --dump html`
-- Get the page text: `obscura fetch <url> --dump text`
-- Evaluate JS / get the title: `obscura fetch <url> --eval "document.title"`
-- Extract all links: `obscura fetch <url> --dump links`
-- Wait for dynamic content: `obscura fetch <url> --wait-until networkidle0`
-- CDP server (Puppeteer/Playwright): `obscura serve --port 9222` then connect
-  to `ws://127.0.0.1:9222`
+- Render a page to HTML (post-JS DOM): `chrome --headless=new --no-sandbox --disable-gpu --dump-dom http://127.0.0.1:18069/web/login`
+- Capture a PNG screenshot (evidence for the PR):
+  `chrome --headless=new --no-sandbox --disable-gpu --hide-scrollbars --window-size=1280,800 --screenshot=/home/dev/workspace/repo/docs/issue-<N>-after.png http://127.0.0.1:18069/<your-route>`
+- Full-page (tall) screenshot: set `--window-size=1280,2400` (or larger to the
+  page height). `--screenshot=` writes the PNG; Chrome exits after capture.
+- `--no-sandbox` is required when running as root / in a container; harmless
+  otherwise. `--disable-gpu` avoids the software-GPU noise on headless servers.
 
-Keep `obscura` and `obscura-worker` in the same directory (they already are on
-the AMI). Obscura is a lightweight headless browser engine — fast, low-memory,
-no Chrome/Node dependency.
+`--dump-dom` prints the rendered HTML to stdout (pipe to a file or `head`).
+`--screenshot=` writes a PNG of the page at the `--window-size` viewport.
 
 ### Screenshots as evidence
 
 When you change the UI, **prove it works** with a screenshot captured via
-obscura, and attach/reference it in the PR body:
+headless Chrome, and attach/reference it in the PR body:
 
-- Save a PNG of the changed view, e.g.:
-  `obscura fetch http://127.0.0.1:18069/<your-route> --wait-until networkidle0 --dump html`
-  then use the CDP server (`obscura serve --port 9222`) with a short
-  Puppeteer/Playwright snippet to `page.screenshot({path: '/home/dev/workspace/repo/docs/issue-<N>-after.png'})`,
-  or whatever image-capture path obscura exposes on this AMI.
+- Capture the changed view, e.g.:
+  `chrome --headless=new --no-sandbox --disable-gpu --hide-scrollbars --window-size=1280,800 --screenshot=/home/dev/workspace/repo/docs/issue-<N>-after.png http://127.0.0.1:18069/<your-route>`
 - Put the screenshot under the repo (e.g. `docs/issue-<N>-after.png`) so it
   ships with the branch, and mention its path in the PR body.
 - If the change has no UI surface (pure model/data change), say so explicitly
@@ -185,8 +182,8 @@ dynamic forms, payments, and inventory. ~64 model files; the biggest are
   /prs:TestErpProductValidation --stop-after-init` (odoo must be started with
   `--test-enable` / `--init` for the module to load tests; the env image is
   configured for this).
-- Verify the UI loads: `obscura fetch http://127.0.0.1:18069/web/login --dump
-  text` should return the login page.
+- Verify the UI loads: `chrome --headless=new --no-sandbox --disable-gpu
+  --dump-dom http://127.0.0.1:18069/web/login` should print the login page HTML.
 
 ## Your task
 
@@ -194,8 +191,9 @@ Read the `## GitHub issue` and `## Task` sections in
 `/home/dev/workspace/AGENT_CONTEXT.md` (next to your cwd) for the specific
 work. **Read that file (and `AGENT.md` in your cwd if present) before you
 start** — they carry the issue body, the commit/push/PR mandate, and the
-obscura guidance. Make the smallest correct change consistent with the
+browser guidance. Make the smallest correct change consistent with the
 conventions above, add/adjust tests, verify Odoo still serves `/web/login`
-(obscura), **capture a screenshot of the changed view with obscura** as
-evidence for the PR, and commit + push to a branch as described above. The DB
-data is masked/fake — safe to mutate freely.
+(`chrome --headless=new --no-sandbox --dump-dom http://127.0.0.1:18069/web/login`),
+**capture a screenshot of the changed view with headless Chrome** as evidence
+for the PR, and commit + push to a branch as described above. The DB data is
+masked/fake — safe to mutate freely.

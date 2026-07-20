@@ -50,7 +50,7 @@ into a running odoo-synth env with an AI agent working on it:
    `opencode run "<task>"` (or `claude -p "<task>"`) over `coder ssh`, the
    task being the issue title/body/URL **plus a prescriptive workflow** (see
    `_build_task` in `issue_to_env.py`): read `AGENT_CONTEXT.md`/`AGENT.md`
-   first, implement, verify with obscura + capture a screenshot, then commit
+   first, implement, verify with headless Chrome + capture a screenshot, then commit
    on a new branch, push, and `gh pr create --base <pr_base>`. The PR base
    comes from the profile (`pr_base`, default `uat`) so each repo lands on its
    own integration branch. A wall-clock timeout caps cost.
