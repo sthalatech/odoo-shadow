@@ -149,6 +149,54 @@ _NAME_IS_PERSON_TABLES = {
     "discuss_channel",                          # channel display name (may name people)
 }
 
+# Tables where a bare ``name`` column holds a descriptive BUSINESS/ENTITY name
+# (a company, warehouse, location, journal, account, product, ...) -- genuine
+# identifying data that must be masked, NOT an Odoo document sequence. The
+# person-allowlist above does not cover these because their ``name`` is an org
+# / object label, not a person. Without this set these names leak unmasked
+# (e.g. res_company.name = "isha foundation inc", stock_warehouse.name =
+# "ISHA LIFE STORES", product_template.name = {"en_US": "Hand Bag"}).
+#
+# These are the *only* non-person tables whose bare ``name`` we mask; every
+# other bare ``name`` is still treated as a document sequence and kept (see the
+# note in the name branch below for why -- unique-index collision risk).
+_NAME_IS_BUSINESS_TABLES = {
+    "res_company",          # legal entity name
+    "res_bank",             # bank name
+    "stock_warehouse",      # warehouse name
+    "stock_location",       # stock location name (UI shows complete_name, but
+                             # the short name still leaks in lists/reports)
+    "stock_picking_type",   # operation type name ("Receipts", "Delivery Orders")
+    "account_journal",      # journal name (translatable -> jsonb)
+    "account_account",      # chart-of-accounts name (translatable -> jsonb)
+    "account_account_tag",  # account tag label
+    "product_template",     # product name (translatable -> jsonb)
+    "product_category",     # product category name
+    "product_tag",          # product tag name
+    "uom_uom",              # unit-of-measure name ("Units", "Dozen")
+    "uom_category",         # UoM category name
+}
+# Bare ``name`` on these tables is structural reference data we must NOT touch
+# (masking breaks Odoo's locale/country/currency integrity). Not in the business
+# set above; documented here so nobody adds them by mistake.
+_DO_NOT_MASK_NAME = {"res_country", "res_country_state", "res_lang", "res_currency"}
+
+# Odoo translatable (jsonb) ``name`` columns: ``{"en_US": "Hand Bag", ...}``.
+# greenmask text transformers (Masking/Hash) reject jsonb at validation, and
+# RandomPerson/RandomCompany on jsonb emit a bare string ("Joana Sawayn") that
+# is INVALID JSON -> COPY fails on restore -> the table comes back EMPTY. The
+# robust, self-contained fix is ``Replace`` with a valid JSON document constant
+# (keep_null preserves real NULLs). This loses per-row variety but is safe and
+# restores cleanly; the operator can swap in a ``Cmd`` transformer later for
+# varied realistic names. Map table -> the JSON replacement value.
+_BUSINESS_NAME_JSON_REPLACE = {
+    "product_template": '{"en_US": "Masked Product"}',
+    "account_journal":  '{"en_US": "Masked Journal"}',
+    "account_account":  '{"en_US": "Masked Account"}',
+    # default for any other jsonb business-name table not listed above
+    "_default":         '{"en_US": "Masked"}',
+}
+
 # Odoo core auth / model-metadata / technical tables the masker handles itself
 # (admin-password reset + neutralize) or that carry structural XML-id / model
 # data Odoo depends on. Auto-masking their columns is redundant at best and
@@ -295,7 +343,33 @@ def transformer_for(column: str, dtype: str, fk_target: str | None,
     low = column.lower()
     if base == "bytea":
         return None  # attachment/image content: greenmask bytea handling varies; skip
-    if base not in _TEXT_TYPES:
+    is_json = base in ("json", "jsonb")
+    # Bare ``name`` on a business/entity table (company, warehouse, journal,
+    # account, product, ...) is a descriptive label, not a document sequence --
+    # mask it. This must run BEFORE the _TEXT_TYPES guard below so jsonb
+    # translatable names (product_template.name = {"en_US": "Hand Bag"}) are
+    # handled: text transformers reject jsonb, and RandomPerson/RandomCompany on
+    # jsonb emit invalid JSON that breaks restore (see _BUSINESS_NAME_JSON_REPLACE).
+    if (low == "name" and table in _NAME_IS_BUSINESS_TABLES
+            and table not in _DO_NOT_MASK_NAME):
+        if unique:
+            return None  # rare: don't risk a unique-index collision
+        if is_json:
+            val = _BUSINESS_NAME_JSON_REPLACE.get(
+                table, _BUSINESS_NAME_JSON_REPLACE["_default"])
+            return {"name": "Replace", "column": column,
+                    "value": val, "keep_null": True}
+        # text name on a business table: a realistic random company / entity
+        # name. RandomCompany ("Epic Valley Inc.") fits org/warehouse/bank /
+        # journal/account labels better than a person name.
+        return {"name": "RandomCompany", "column": column,
+                "template": "{{ .CompanyName }} {{ .CompanySuffix }}"}
+    if not is_json and base not in _TEXT_TYPES:
+        return None
+    if is_json:
+        # Only the bare-name business case above handles jsonb; all other jsonb
+        # columns pass through (greenmask text transformers don't apply, and we
+        # don't generically rewrite arbitrary jsonb here).
         return None
     if low in _SKIP_COLUMNS or low.endswith("_id") or low.endswith("_state"):
         return None
@@ -458,10 +532,11 @@ def _render_greenmask(table_transformers: dict[str, list[dict]],
             continue
         lines.append("      transformers:")
         for t in tlist:
-            # RandomPerson has a nested `columns` param (each with its own
-            # go-template), so it can't use the single-line params form.
-            if t["name"] == "RandomPerson":
-                lines.append("        - name: RandomPerson")
+            # RandomPerson / RandomCompany have a nested `columns` param (each
+            # with its own go-template), so they can't use the single-line
+            # params form.
+            if t["name"] in ("RandomPerson", "RandomCompany"):
+                lines.append(f"        - name: {t['name']}")
                 lines.append("          params:")
                 lines.append("            columns:")
                 lines.append(f"              - name: {t['column']}")
