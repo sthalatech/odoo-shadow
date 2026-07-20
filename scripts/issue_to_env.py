@@ -87,6 +87,86 @@ def _workspace_label(issue_number: str, title: str) -> str:
     return f"iss-{n or 'x'}-{_short_slug(title)}"
 
 
+def _build_task(issue_ref: str, title: str, url: str, body: str,
+                pr_base: str) -> str:
+    """Build the task string sent to the agent.
+
+    This is the single source of truth for what the agent is told to do, so it
+    is deliberately prescriptive about the FULL workflow -- not just the
+    feature -- to fix the failure mode where the agent stopped after
+    "verify changes" and never committed/pushed/PR'd:
+
+      A. Read the operating instructions first. The env stages the project
+         system prompt + this task as /home/dev/workspace/AGENT_CONTEXT.md
+         (and AGENT.md in the repo cwd when the repo ships none). The agent
+         MUST read AGENT_CONTEXT.md / AGENT.md before doing anything else --
+         they carry the commit/push/PR mandate, the obscura-browser guidance,
+         and the env layout. superpowers' brainstorming skill checklist ends
+         at "transition to implementation" and does NOT include finishing the
+         branch, so the mandate has to be in the task itself, not just the
+         skill or a file the agent may skip.
+      B. Make the finish step an explicit, final, non-optional part of the
+         task: commit on a new branch, push, and `gh pr create --base <pr_base>`
+         with "Resolves #N". Do not stop until the PR is created.
+      +  Verify the change visually with obscura (the headless browser on the
+         AMI) and save a screenshot, so the PR has evidence the UI works.
+
+    The PR base branch is per-profile (profile.pr_base, default uat) so each
+    repo lands on its own integration branch without the agent guessing.
+    """
+    import textwrap
+    pr_base = (pr_base or "uat").strip() or "uat"
+    parts: list[str] = []
+    parts.append(f"Resolve GitHub issue {issue_ref}: {title}")
+    if url:
+        parts.append(f"Issue URL: {url}")
+    if body:
+        parts.append(f"\nIssue body:\n{body[:8000]}")
+
+    parts.append(textwrap.dedent(f"""\
+
+        ── READ THIS BEFORE YOU START ──
+        First, read your operating instructions: open and read
+        /home/dev/workspace/AGENT_CONTEXT.md and /home/dev/workspace/repo/AGENT.md
+        (if it exists) in your cwd. They contain the project system prompt, the
+        commit/push/PR mandate, the obscura-browser guidance, and the env layout
+        (Odoo on 127.0.0.1:18069, repo at /home/dev/workspace/repo). Do NOT skip
+        this and do NOT rely solely on the superpowers brainstorming checklist --
+        that checklist ends at "transition to implementation" and does NOT include
+        finishing the branch, so the finish steps below are part of YOUR task.
+
+        ── WORKFLOW (do every step; do not stop early) ──
+        1. Understand the issue and explore the codebase (read before you write).
+        2. Make the smallest correct change in the addons repo.
+        3. Reload + upgrade Odoo: `docker restart env-odoo` then
+           `docker exec env-odoo odoo -d odoo -u <addon> --stop-after-init`.
+        4. VERIFY VISUALLY with obscura (the headless browser; do NOT launch a
+           GUI browser). Navigate to the Odoo page(s) your change affects and
+           take a screenshot as evidence:
+             obscura fetch http://127.0.0.1:18069/web/login --dump html
+             obscura fetch http://127.0.0.1:18069/<your-route> --wait-until networkidle0
+           Save a screenshot of the changed view (e.g. to
+           /home/dev/workspace/repo/docs/issue-{issue_ref}-after.png or under
+           ./) and reference it in the PR body. If obscura cannot capture an
+           image for this route, say so explicitly in your final summary instead
+           of silently skipping the check.
+        5. FINISH — commit, push, and open a PR. This is mandatory and is the
+           last step; do not stop after verifying:
+             a. Commit on a NEW branch (do not commit directly to {pr_base}).
+             b. Push the branch: `git push -u origin <branch>`.
+             c. Open a pull request:
+                  gh pr create --base {pr_base} \\
+                    --title "<short summary>" \\
+                    --body "<summary of the change + Resolves {issue_ref} + note the screenshot path>"
+             The `gh` CLI is installed and GH_TOKEN is in your environment. Push
+             FIRST, then create the PR. Do NOT stop until the PR is created. Do
+             NOT submit/merge the PR yourself.
+        If you cannot push or create the PR (auth failure, gh missing, etc.),
+        say so EXPLICITLY in your final summary — do NOT silently leave changes
+        uncommitted or unpushed."""))
+    return "\n".join(parts)
+
+
 def match_profile(repo_url: str) -> tuple[str | None, dict | None]:
     """Find the profile whose addons repo matches `repo_url` (normalized host+path
     equality). Prefer one with a built image (image_status == ready). Returns
@@ -168,7 +248,14 @@ def main() -> int:
         if mods:
             upgrade_modules = ",".join(mods)
 
+    # The PR base branch the agent must target with `gh pr create --base`.
+    # Per-profile (profile.pr_base) so each repo lands on its own integration
+    # branch; default uat (the prs-backend integration branch). The issue
+    # launcher passes this explicitly so the agent doesn't have to guess.
+    pr_base = (profile.get("pr_base") or "").strip() or "uat"
+
     _log(f"creating env: name={label} issue={issue_ref} branch={repo_branch} "
+         f"pr_base={pr_base} "
          f"upgrade_modules={'all' if not upgrade_modules else f'{len(upgrade_modules.split(chr(44)))} modules'}")
     try:
         env_id = environments.create(
@@ -187,11 +274,7 @@ def main() -> int:
         return 3
     _log("env is running; staging agent context + launching agent")
 
-    task = f"Resolve GitHub issue {issue_ref}: {issue_title}"
-    if issue_url:
-        task += f"\nIssue URL: {issue_url}"
-    if issue_body:
-        task += f"\n\nIssue body:\n{issue_body[:8000]}"
+    task = _build_task(issue_ref, issue_title, issue_url, issue_body, pr_base)
 
     # The agent + system prompt come from the matched profile (per-preset
     # config), with env-var / global-file fallbacks so the defaults still work

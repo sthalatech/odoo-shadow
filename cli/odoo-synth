@@ -276,6 +276,7 @@ def cmd_profile_create(args) -> int:
             _read_file_text(args.agent_system_prompt[1:])
             if args.agent_system_prompt and args.agent_system_prompt.startswith("@")
             else args.agent_system_prompt),
+        "pr_base": args.pr_base,
         "mask_profile": args.mask_profile,
         "admin_password": args.admin_password,
         "gm_jobs": args.gm_jobs,
@@ -349,6 +350,8 @@ def cmd_profile_update(args) -> int:
         if sp.startswith("@"):
             sp = _read_file_text(sp[1:])
         payload["agent_system_prompt"] = sp
+    if args.pr_base is not None:
+        payload["pr_base"] = args.pr_base
     for k in ("gm_jobs", "subset_days", "exclude_table_data"):
         v = getattr(args, k, None)
         if v is not None:
@@ -828,6 +831,11 @@ def _build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--agent-system-prompt", default=None,
                    help="project system prompt for the agent (literal text or "
                         "@file). Empty = use the built-in agent-system-prompt.md")
+    pc.add_argument("--pr-base", default=None,
+                   help="target branch for `gh pr create --base <branch>` when "
+                        "the agent finishes (default uat). The issue launcher "
+                        "uses this so the agent opens its PR against the right "
+                        "integration branch.")
     _add_ssh_args(pc)
     _add_mask_args(pc)
     pc.add_argument("--json", action="store_true")
@@ -866,6 +874,10 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="project system prompt for the agent (literal text or "
                         "@file to read from a file). Empty = use the built-in "
                         "agent-system-prompt.md")
+    pu.add_argument("--pr-base", default=None,
+                   help="target branch for `gh pr create --base <branch>` when "
+                        "the agent finishes (default uat). Set per-profile so the "
+                        "issue launcher tells the agent the right integration branch.")
     _add_ssh_args(pu)
     _add_mask_args(pu)
     pu.set_defaults(func=cmd_profile_update)

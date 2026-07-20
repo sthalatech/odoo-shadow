@@ -440,6 +440,16 @@ def _stage_agent_context(env_id: str, issue: str, task: str, system_prompt: str)
     body = textwrap.dedent(f"""\
         # odoo-synth agent context (env {env_id})
 
+        > ⚠️ READ THIS FILE FIRST. Before you do anything else, read this whole
+        > file (and `AGENT.md` in your cwd if present). It carries the GitHub
+        > issue, your task, the commit/push/PR mandate, and the obscura-browser
+        > guidance. Do NOT rely solely on the superpowers brainstorming
+        > checklist — that checklist ends at "transition to implementation"
+        > and does NOT include finishing the branch. Committing, pushing, and
+        > opening a PR (`gh pr create --base <branch>`) are part of YOUR task,
+        > and you must also capture an obscura screenshot of the changed view
+        > as evidence for the PR. Do not stop until the PR is created.
+
         ## GitHub issue
         {issue or '(none)'}
 

@@ -48,12 +48,21 @@ into a running odoo-synth env with an AI agent working on it:
 3. **Invoke opencode in the env with issue details.** `wait_for_env` polls the
    build to `running`, then `run_agent` runs
    `opencode run "<task>"` (or `claude -p "<task>"`) over `coder ssh`, the
-   task being the issue title/body/URL. A wall-clock timeout caps cost.
+   task being the issue title/body/URL **plus a prescriptive workflow** (see
+   `_build_task` in `issue_to_env.py`): read `AGENT_CONTEXT.md`/`AGENT.md`
+   first, implement, verify with obscura + capture a screenshot, then commit
+   on a new branch, push, and `gh pr create --base <pr_base>`. The PR base
+   comes from the profile (`pr_base`, default `uat`) so each repo lands on its
+   own integration branch. A wall-clock timeout caps cost.
 4. **superpowers attached.** superpowers (the agentic-skills plugin baked
    into the golden AMI) loads inside the agent's session and drives it
    autonomously: brainstorm -> plan -> git-worktree -> TDD subagent dev ->
    review -> finish branch (merge/PR). The agent + system prompt come from the
    matched profile (per-preset config), with env-var / global-file fallbacks.
+   Note: superpowers' brainstorming checklist ends at "transition to
+   implementation" and does NOT itself include commit/push/PR, so the task
+   string (step 3) makes the finish step explicit — that was the root cause of
+   the agent stopping after "verify changes" with no commit/push/PR.
 5. **System prompt provision (Phase 1).**
    `coder/templates/odoo-synth-env/agent-system-prompt.md` is the placeholder,
    staged into the env as `AGENT_CONTEXT.md` and (if the repo ships none)
@@ -101,6 +110,10 @@ server; the service is fail-closed (rejects all POSTs) until a secret exists.
 ## Manual / CLI use (same primitives, ad-hoc)
 
 ```bash
+# set the PR base branch once per profile (default uat); the issue launcher
+# tells the agent to `gh pr create --base <pr_base>` against it
+odoo-synth profile update <profile_id> --pr-base uat
+
 odoo-synth env create --profile-id <id> --source-run-id <run> \
   --issue "#42" --name iss-42-fix-login --upgrade-modules "module_a,module_b"
 odoo-synth env wait <env_id> --timeout 1200

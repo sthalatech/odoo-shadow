@@ -43,6 +43,21 @@ Keep `obscura` and `obscura-worker` in the same directory (they already are on
 the AMI). Obscura is a lightweight headless browser engine — fast, low-memory,
 no Chrome/Node dependency.
 
+### Screenshots as evidence
+
+When you change the UI, **prove it works** with a screenshot captured via
+obscura, and attach/reference it in the PR body:
+
+- Save a PNG of the changed view, e.g.:
+  `obscura fetch http://127.0.0.1:18069/<your-route> --wait-until networkidle0 --dump html`
+  then use the CDP server (`obscura serve --port 9222`) with a short
+  Puppeteer/Playwright snippet to `page.screenshot({path: '/home/dev/workspace/repo/docs/issue-<N>-after.png'})`,
+  or whatever image-capture path obscura exposes on this AMI.
+- Put the screenshot under the repo (e.g. `docs/issue-<N>-after.png`) so it
+  ships with the branch, and mention its path in the PR body.
+- If the change has no UI surface (pure model/data change), say so explicitly
+  in your final summary instead of silently skipping the screenshot.
+
 ## Git — you MUST commit and push your work
 
 CRITICAL. Your changes are worthless if they stay only in this env's working
@@ -177,7 +192,10 @@ dynamic forms, payments, and inventory. ~64 model files; the biggest are
 
 Read the `## GitHub issue` and `## Task` sections in
 `/home/dev/workspace/AGENT_CONTEXT.md` (next to your cwd) for the specific
-work. Make the smallest correct change consistent with the conventions above,
-add/adjust tests, verify Odoo still serves `/web/login` (obscura), and commit
-+ push to a branch as described above. The DB data is masked/fake — safe to
-mutate freely.
+work. **Read that file (and `AGENT.md` in your cwd if present) before you
+start** — they carry the issue body, the commit/push/PR mandate, and the
+obscura guidance. Make the smallest correct change consistent with the
+conventions above, add/adjust tests, verify Odoo still serves `/web/login`
+(obscura), **capture a screenshot of the changed view with obscura** as
+evidence for the PR, and commit + push to a branch as described above. The DB
+data is masked/fake — safe to mutate freely.

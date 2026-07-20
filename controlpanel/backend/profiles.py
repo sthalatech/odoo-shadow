@@ -114,6 +114,7 @@ def create(payload: dict[str, Any]) -> str:
         "addons_git_ref": payload.get("addons_git_ref"),
         "needs_enterprise": 1 if payload.get("needs_enterprise") else 0,
         "enterprise_source": payload.get("enterprise_source"),
+        "pr_base": payload.get("pr_base"),
         "mask_inputs": _mask_inputs(payload),
         "image_status": "draft",
     }
@@ -150,7 +151,7 @@ def update(profile_id: str, payload: dict[str, Any]) -> None:
     for k in ("label", "description", "odoo_series", "odoo_git_url",
               "odoo_git_ref", "addons_git_url", "addons_git_ref",
               "enterprise_source", "odoo_conf_extra", "masking_rules",
-              "agent_name", "agent_system_prompt"):
+              "agent_name", "agent_system_prompt", "pr_base"):
         if k in payload:
             fields[k] = payload[k]
     if "needs_enterprise" in payload:
