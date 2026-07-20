@@ -456,6 +456,33 @@ def _stage_agent_context(env_id: str, issue: str, task: str, system_prompt: str)
     return remote if rc == 0 else ""
 
 
+def _ensure_agent_launcher(env_id: str) -> None:
+    """Write /home/dev/workspace/run-agent.sh on the env (idempotent). The
+    launcher sources the per-env agent-env file (GH_TOKEN for `gh` PR creation)
+    and execs the agent with the task decoded from a base64 argv. Kept as a
+    file so run_agent can invoke it without nested shell quoting (ssh_exec
+    runs `bash -lc <cmd>`, so any single quotes in the command break)."""
+    script = r"""#!/usr/bin/env bash
+set -a
+. /home/dev/.config/agent-env 2>/dev/null || true
+set +a
+cd /home/dev/workspace/repo 2>/dev/null || cd /home/dev/workspace
+AGENT="$1"; TASK_B64="$2"
+TASK="$(printf %s "$TASK_B64" | base64 -d)"
+case "$AGENT" in
+  claude-code) exec claude -p "$TASK" ;;
+  *)           exec opencode run --auto "$TASK" ;;
+esac
+"""
+    b64 = base64.b64encode(script.encode()).decode()
+    cmd = (
+        f"echo {b64} | base64 -d > /home/dev/workspace/run-agent.sh && "
+        f"chmod 755 /home/dev/workspace/run-agent.sh && "
+        f"chown dev:dev /home/dev/workspace/run-agent.sh 2>/dev/null; true"
+    )
+    ssh_exec(env_id, cmd, timeout=120)
+
+
 def run_agent(env_id: str, task: str, *, agent: str = "opencode",
                max_iterations: int = 15, issue: Optional[str] = None,
                system_prompt: Optional[str] = None,
@@ -480,28 +507,13 @@ def run_agent(env_id: str, task: str, *, agent: str = "opencode",
         raise ValueError(f"environment not found: {env_id}")
     name = env.get("workspace_name") or env_id
     _stage_agent_context(env_id, issue or "", task, system_prompt or "")
-    # Direct headless invocation. opencode run / claude -p run once;
-    # superpowers (loaded from the staged opencode.json / ~/.claude/plugins)
-    # drives the multi-step work inside that single session. The task text is
-    # base64-encoded below to avoid shell-quoting issues.
-    # Source the per-env agent env file (GH_TOKEN for `gh` PR creation;
-    # written by the env startup script from the same Secrets-Manager git
-    # token used for the push URL). The task text is base64-encoded to avoid
-    # any shell-quoting issues (issue bodies can contain any character).
-    import base64
+    # Run via the staged launcher script (avoids nested-shell quoting --
+    # ssh_exec runs `bash -lc <cmd>`, so single quotes in the command break).
+    # The task is base64-encoded and passed as argv to the launcher, which
+    # sources GH_TOKEN (for `gh` PR creation) and execs the agent.
+    _ensure_agent_launcher(env_id)
     task_b64 = base64.b64encode((task or "").encode()).decode()
-    if agent == "claude-code":
-        agent_inner = 'claude -p "$TASK"'
-    else:
-        agent_inner = 'opencode run --auto "$TASK"'
-    cmd = (
-        f"sudo -u dev HOME=/home/dev bash -c '"
-        f"set -a; . /home/dev/.config/agent-env 2>/dev/null || true; set +a; "
-        f"TASK=$(printf %s {task_b64} | base64 -d); "
-        f"cd /home/dev/workspace/repo 2>/dev/null || cd /home/dev/workspace; "
-        f"{agent_inner}"
-        f"'"
-    )
+    cmd = f"sudo -u dev HOME=/home/dev /home/dev/workspace/run-agent.sh {agent} {task_b64}"
     rc, out = ssh_exec(env_id, cmd, timeout=timeout)
     return {"exit_code": rc, "output": out, "command": cmd,
             "workspace": name, "agent": agent}
