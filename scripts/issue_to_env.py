@@ -10,15 +10,22 @@ It:
      preset the Coder dashboard would offer for that repo.
   2. Labels the env with the issue # + a short slug of the issue title
      (the Coder workspace name, e.g. `iss-42-fix-login-500`).
-  3. Waits for the env to reach running, then invokes opencode inside it via
-     ralph-wiggum (baked into the golden AMI), passing the issue details as the
-     task and the project system prompt as context.
-  4. ralph follows the AGENT.md / AGENT_CONTEXT.md the hook stages so the agent
-     understands the project context.
+  3. Waits for the env to reach running, then invokes the agent headlessly
+     inside it (opencode run / claude -p), passing the issue details as the
+     task and the project system prompt as context. The agent + system prompt
+     come from the matched profile (per-preset config), with env-var / global-
+     file fallbacks.
+  4. superpowers (the agentic-skills plugin baked into the golden AMI) loads
+     inside the agent's session and drives it autonomously through the task
+     (brainstorm -> plan -> git-worktree -> TDD -> review -> finish branch/PR).
+     The env startup script stages the per-profile prompt as AGENT_CONTEXT.md /
+     AGENT.md; this launcher overlays the issue/task specifics.
 
 Inputs come from env vars set by the workflow:
   ISSUE_NUMBER, ISSUE_TITLE, ISSUE_BODY, ISSUE_URL, ISSUE_REPO_URL,
-  ODOO_SYNTH_AGENT (default opencode), ODOO_SYNTH_MAX_ITER (default 15),
+  ODOO_SYNTH_AGENT (default opencode; profile.agent_name wins when set),
+  ODOO_SYNTH_MAX_ITER (kept for compat; the agent self-drives via superpowers),
+  ODOO_SYNTH_AGENT_TIMEOUT (wall-clock cost guard, default 3600s),
   ODOO_SYNTH_UPGRADE_MODULES (optional comma-list, else profile-discovered),
   ODOO_SYNTH_BRANCH_HINT (optional repo branch override; else profile ref).
 
@@ -186,18 +193,26 @@ def main() -> int:
     if issue_body:
         task += f"\n\nIssue body:\n{issue_body[:8000]}"
 
-    system_prompt = ""
-    sp_path = REPO_ROOT / environments.AGENT_SYSTEM_PROMPT_PATH
-    try:
-        if sp_path.exists():
-            system_prompt = sp_path.read_text()
-    except Exception:  # noqa: BLE001
-        pass
+    # The agent + system prompt come from the matched profile (per-preset
+    # config), with env-var / global-file fallbacks so the defaults still work
+    # for profiles that haven't set them.
+    agent = (profile.get("agent_name") or agent).strip() or "opencode"
+    system_prompt = (profile.get("agent_system_prompt") or "").strip()
+    if not system_prompt:
+        sp_path = REPO_ROOT / environments.AGENT_SYSTEM_PROMPT_PATH
+        try:
+            if sp_path.exists():
+                system_prompt = sp_path.read_text()
+        except Exception:  # noqa: BLE001
+            pass
+    # Wall-clock cost guard (replaces ralph's --max-iterations cap).
+    agent_timeout = int(os.environ.get("ODOO_SYNTH_AGENT_TIMEOUT", "3600") or "3600")
 
     try:
         res = environments.run_agent(
             env_id, task, agent=agent, max_iterations=max_iter,
-            issue=issue_ref, system_prompt=system_prompt)
+            issue=issue_ref, system_prompt=system_prompt,
+            timeout=agent_timeout)
     except Exception as exc:  # noqa: BLE001
         _log(f"ERROR: agent launch failed: {exc}")
         return 4

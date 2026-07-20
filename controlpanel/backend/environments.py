@@ -333,7 +333,8 @@ def create(source_run_id: Optional[str], issue: Optional[str],
 # After `create` returns the env is provisioning on the Coder server. The
 # GitHub Actions hook waits for the workspace build to finish (so the EC2 agent
 # is up) then runs the boot/startup script to readiness before driving the AI
-# agent (opencode via ralph) inside it over `coder ssh`. These helpers wrap the
+# agent (opencode / claude-code, driven by superpowers) inside it over `coder ssh`.
+# These helpers wrap the
 # `coder` CLI; they do NOT mutate infra, so they are safe to run alongside the
 # discover/build/mask pipeline in another process.
 
@@ -410,20 +411,13 @@ def ssh_exec(env_id: str, command: str, timeout: int = 600) -> tuple[int, str]:
 AGENT_SYSTEM_PROMPT_PATH = "coder/templates/odoo-synth-env/agent-system-prompt.md"
 
 
-def _write_agent_context(env_id: str, issue: str, task: str, system_prompt: str) -> str:
+def _stage_agent_context(env_id: str, issue: str, task: str, system_prompt: str) -> str:
     """Stage the project system prompt + issue/task context into the workspace
-    so the agent reads it on start. Returns the remote path written (empty on
-    failure). Best-effort: a failure here only means the agent starts without
-    the curated prompt (it still gets the task string on the ralph command line).
-
-    Two files are written:
-      - /home/dev/workspace/AGENT_CONTEXT.md -- the full context (issue + task +
-        project system prompt). Stable sibling of the repo.
-      - /home/dev/workspace/repo/AGENT.md -- opencode (and Claude Code) read
-        AGENT.md from their cwd as the system prompt. We only create it when the
-        repo does not already ship one, so a repo's own AGENT.md wins. This is
-        what makes the agent *follow* the project context.
-    """
+    so the agent reads it on start. Best-effort: the env's startup script
+    already stages the per-profile prompt as AGENT_CONTEXT.md / AGENT.md at
+    boot; this overlays the issue/task specifics for the webhook path (so the
+    agent sees the GitHub issue body, not just the bare task). Returns the
+    remote path written (empty on failure)."""
     import textwrap
     body = textwrap.dedent(f"""\
         # odoo-synth agent context (env {env_id})
@@ -435,11 +429,9 @@ def _write_agent_context(env_id: str, issue: str, task: str, system_prompt: str)
         {task or '(see the issue above)'}
 
         ## Project system prompt
-        {system_prompt or '(not configured yet -- fill in coder/templates/odoo-synth-env/agent-system-prompt.md)'}
+        {system_prompt or '(staged by the env startup script from the profile)'}
         """)
     b64 = base64.b64encode(body.encode()).decode()
-    # base64 round-trips the body so any quoting in issue/task/system_prompt is
-    # safe through the shell. AGENT.md is written only when absent.
     remote = "/home/dev/workspace/AGENT_CONTEXT.md"
     cmd = (
         "install -d /home/dev/workspace /home/dev/workspace/repo && "
@@ -449,48 +441,49 @@ def _write_agent_context(env_id: str, issue: str, task: str, system_prompt: str)
         f"cp {remote} /home/dev/workspace/repo/AGENT.md && "
         "chown dev:dev /home/dev/workspace/repo/AGENT.md 2>/dev/null; fi; true"
     )
-    # --wait=yes blocks until the agent's startup_script (Odoo boot + module
-    # upgrade) finishes so /home/dev/workspace/repo exists; that can take
-    # several minutes, so allow a generous timeout rather than racing it.
     rc, out = ssh_exec(env_id, cmd, timeout=900)
     return remote if rc == 0 else ""
 
 
 def run_agent(env_id: str, task: str, *, agent: str = "opencode",
                max_iterations: int = 15, issue: Optional[str] = None,
-               system_prompt: Optional[str] = None) -> dict:
-    """Invoke the AI agent inside the launched env via ralph-wiggum (baked into
-    the golden AMI). ralph wraps the agent in an autonomous loop so it keeps
-    working until the task is done (or --max-iterations is hit). Returns a
-    summary dict {exit_code, output, command}.
+               system_prompt: Optional[str] = None,
+               timeout: int = 3600) -> dict:
+    """Invoke the AI agent headlessly inside the launched env. The agent runs
+    once in a single session; superpowers (the agentic-skills plugin baked into
+    the golden AMI) drives it autonomously through the task -- brainstorm ->
+    plan -> git-worktree -> TDD subagent dev -> review -> finish branch (merge
+    /PR) -- so no external loop (the former ralph-wiggum) is needed. A wall-clock
+    ``timeout`` caps cost (default 1h). Returns {exit_code, output, command,
+    workspace, agent}.
 
-    - ``agent``: which underlying agent ralph drives (opencode, claude-code,
-      codex, ...). Default opencode (open-source, no per-user API key needed).
-    - ``max_iterations``: ralph autonomy cap.
-    - ``issue``/``system_prompt``: written to AGENT_CONTEXT.md (and AGENT.md in
-      the repo, when the repo ships none) before launch so the agent *follows*
-      the project context. ralph-wiggum (baked into the golden AMI) is attached
-      as the autonomous loop driving ``agent``.
+    - ``agent``: opencode (default, no per-user API key) or claude-code.
+    - ``max_iterations``: kept for API compatibility; no longer used (the agent
+      self-drives via superpowers; the wall-clock timeout is the cost guard).
+    - ``issue``/``system_prompt``: staged as AGENT_CONTEXT.md / AGENT.md so the
+      agent follows the project context. The env startup script already stages
+      the per-profile prompt; this overlays the issue/task specifics.
     """
     env = store.get_environment(env_id)
     if not env:
         raise ValueError(f"environment not found: {env_id}")
     name = env.get("workspace_name") or env_id
-    _write_agent_context(env_id, issue or "", task, system_prompt or "")
-    # ralph-wiggum's shebang is #!/usr/bin/env node but the golden AMI ships
-    # Bun (not Node); invoke ralph under `bun` so it runs without a system
-    # node. `bun /usr/local/bin/ralph` follows the symlink to ralph.js and
-    # runs it under Bun's node-compatible runtime (shebang is ignored).
-    # ralph runs as the dev user, cd'd into the cloned addons repo, with the
-    # agent context visible. opencode reads AGENT.md / opencode.json from the
-    # cwd; AGENT_CONTEXT.md is a stable sibling the system prompt points at.
+    _stage_agent_context(env_id, issue or "", task, system_prompt or "")
+    # Shell-quote the task: replace ' with the standard '"'"' escape so the
+    # single-quoted arg to opencode/claude is safe.
     safe_task = (task or "").replace("'", "'\"'\"'")
+    # Direct headless invocation. opencode run / claude -p run once; superpowers
+    # (loaded from the staged opencode.json / ~/.claude/plugins) drives the
+    # multi-step work inside that single session.
+    if agent == "claude-code":
+        agent_cmd = f"claude -p '{safe_task}'"
+    else:
+        agent_cmd = f"opencode run '{safe_task}'"
     cmd = (
         f"cd /home/dev/workspace/repo 2>/dev/null || cd /home/dev/workspace; "
-        f"sudo -u dev HOME=/home/dev bun /usr/local/bin/ralph '{safe_task}' "
-        f"--agent {agent} --max-iterations {int(max_iterations)}"
+        f"sudo -u dev HOME=/home/dev {agent_cmd}"
     )
-    rc, out = ssh_exec(env_id, cmd, timeout=3600)
+    rc, out = ssh_exec(env_id, cmd, timeout=timeout)
     return {"exit_code": rc, "output": out, "command": cmd,
             "workspace": name, "agent": agent}
 

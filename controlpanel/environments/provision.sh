@@ -62,7 +62,7 @@ rm -f /tmp/claude.tar.gz
 ln -sf "$CLAUDE_DIR/claude" /usr/local/bin/claude
 chmod +x "$CLAUDE_DIR/claude" /usr/local/bin/claude
 
-# --- Bun (runtime for ralph-wiggum) ----------------------------------------
+# --- Bun (JS runtime for OpenCode + superpowers plugin install) -----------
 # Installed system-wide: binary at /opt/bun/bin/bun, symlinked on PATH.
 BUN_DIR="/opt/bun"
 curl -fsSL https://bun.sh/install | BUN_INSTALL="$BUN_DIR" bash
@@ -79,12 +79,49 @@ mkdir -p /opt
 curl -fsSL https://opencode.ai/install | HOME=/opt bash -s -- --no-modify-path
 ln -sf /opt/.opencode/bin/opencode /usr/local/bin/opencode
 
-# --- Ralph Wiggum (agentic loop over claude/opencode/codex/...) ------------
-# A Bun/TypeScript CLI installed as a global npm package via Bun. Requires at
-# least one agent CLI -- we have claude (+ opencode above) so the install
-# succeeds. `ralph "task" --agent claude-code` loops the agent autonomously.
-BUN_INSTALL="/opt/bun" PATH="/opt/bun/bin:$PATH"   bun add --global @th0rgal/ralph-wiggum
-ln -sf /opt/bun/bin/ralph /usr/local/bin/ralph
+# --- Superpowers (agentic-skills plugin for claude-code + opencode) --------
+# https://github.com/obra/superpowers  -- TDD, planning, git-worktrees, code
+# review, subagent-driven-development. Loaded inside the agent's session (not
+# an external loop), so it drives the agent autonomously through a task in one
+# continuous session. Pre-cloned to /opt/superpowers so envs load it with no
+# runtime network dependency (local-path plugin install for both harnesses).
+SUPERPOWERS_DIR="/opt/superpowers"
+if [ ! -d "$SUPERPOWERS_DIR/.git" ]; then
+  git clone --depth 1 https://github.com/obra/superpowers.git "$SUPERPOWERS_DIR"
+fi
+# OpenCode: register the local checkout as a plugin in the global opencode.json.
+# (Written to /opt so it applies to every user; the env startup symlinks it
+# into /home/dev/.config/opencode/ for the dev user.)
+mkdir -p /opt/.opencode
+cat > /opt/.opencode/opencode.json <<'OCJSON'
+{
+  "plugin": ["/opt/superpowers"]
+}
+OCJSON
+# Claude Code: plugins live under ~/.claude/plugins. Symlink the checkout so
+# Claude Code's plugin loader discovers it (the plugin ships its own
+# hooks/hooks.json SessionStart entry, so it bootstraps on every session).
+mkdir -p /opt/.claude/plugins
+ln -sfn "$SUPERPOWERS_DIR" /opt/.claude/plugins/superpowers
+
+# --- Obscura (headless browser for AI agents; prebuilt static Rust binary) --
+# https://github.com/h4ckf0r0day/obscura  -- a lightweight headless browser
+# engine (CDP + Puppeteer/Playwright-compatible). The agent uses it instead of
+# a GUI browser to view pages / test Odoo UI. Release tarball ships two static
+# binaries (obscura + obscura-worker); keep them in the same dir.
+OBSCURA_DIR="/opt/obscura"
+mkdir -p "$OBSCURA_DIR"
+ARCH="$(uname -m)"
+case "$ARCH" in
+  x86_64)  OBSCURA_ARCH="x86_64" ;;
+  aarch64) OBSCURA_ARCH="aarch64" ;;
+  *) echo "unsupported arch $ARCH for obscura" >&2; OBSCURA_ARCH="" ;;
+esac
+if [ -n "$OBSCURA_ARCH" ]; then
+  curl -fsSL "https://github.com/h4ckf0r0day/obscura/releases/latest/download/obscura-${OBSCURA_ARCH}-linux.tar.gz"     -o /tmp/obscura.tar.gz &&   tar -xzf /tmp/obscura.tar.gz -C "$OBSCURA_DIR" && rm -f /tmp/obscura.tar.gz
+  ln -sf "$OBSCURA_DIR/obscura" /usr/local/bin/obscura
+  ln -sf "$OBSCURA_DIR/obscura-worker" /usr/local/bin/obscura-worker 2>/dev/null || true
+fi
 
 # A dedicated unprivileged developer user owns the workspace and runs Odoo.
 if ! id dev >/dev/null 2>&1; then
@@ -95,8 +132,13 @@ fi
 install -d -o dev -g dev /home/dev/.local/bin
 ln -sf /usr/local/bin/claude   /home/dev/.local/bin/claude
 ln -sf /usr/local/bin/opencode /home/dev/.local/bin/opencode
-ln -sf /usr/local/bin/ralph    /home/dev/.local/bin/ralph
 ln -sf /usr/local/bin/bun      /home/dev/.local/bin/bun
+ln -sf /usr/local/bin/obscura  /home/dev/.local/bin/obscura 2>/dev/null || true
+# Make the global opencode.json (superpowers plugin) + Claude plugin symlink
+# visible to the dev user's home so both agents load superpowers at session start.
+install -d -o dev -g dev /home/dev/.config/opencode /home/dev/.claude/plugins
+ln -sfn /opt/.opencode/opencode.json /home/dev/.config/opencode/opencode.json
+ln -sfn /opt/superpowers /home/dev/.claude/plugins/superpowers 2>/dev/null || true
 printf 'export PATH="$HOME/.local/bin:$PATH"\n' >> /home/dev/.bashrc
 
 # Pre-pull the postgres image so first boot is fast. The provenance-baked odoo

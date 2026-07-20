@@ -247,6 +247,11 @@ def _read_ssh_key(path: Optional[str]) -> Optional[str]:
     return Path(path).read_text()
 
 
+def _read_file_text(path: str) -> str:
+    """Read a file's text (for @file arguments). Errors if it can't be read."""
+    return Path(path).read_text()
+
+
 # --- profile commands -------------------------------------------------------
 
 def cmd_profile_create(args) -> int:
@@ -266,6 +271,11 @@ def cmd_profile_create(args) -> int:
         "addons_git_ref": args.addons_git_ref,
         "needs_enterprise": args.needs_enterprise,
         "enterprise_source": args.enterprise_source,
+        "agent_name": args.agent_name,
+        "agent_system_prompt": (
+            _read_file_text(args.agent_system_prompt[1:])
+            if args.agent_system_prompt and args.agent_system_prompt.startswith("@")
+            else args.agent_system_prompt),
         "mask_profile": args.mask_profile,
         "admin_password": args.admin_password,
         "gm_jobs": args.gm_jobs,
@@ -332,6 +342,13 @@ def cmd_profile_update(args) -> int:
         payload["git_token"] = args.git_token
     if getattr(args, "git_token_secret", None) is not None:
         payload["git_token_secret"] = args.git_token_secret
+    if args.agent_name is not None:
+        payload["agent_name"] = args.agent_name
+    if args.agent_system_prompt is not None:
+        sp = args.agent_system_prompt
+        if sp.startswith("@"):
+            sp = _read_file_text(sp[1:])
+        payload["agent_system_prompt"] = sp
     for k in ("gm_jobs", "subset_days", "exclude_table_data"):
         v = getattr(args, k, None)
         if v is not None:
@@ -694,7 +711,7 @@ def cmd_env_agent(args) -> int:
     res = environments.run_agent(
         args.env_id, args.task, agent=args.agent,
         max_iterations=args.max_iterations, issue=issue,
-        system_prompt=system_prompt)
+        system_prompt=system_prompt, timeout=args.timeout)
     print(f"[agent] workspace={res['workspace']} agent={res['agent']} "
           f"exit={res['exit_code']}")
     if getattr(args, "json", False):
@@ -805,6 +822,12 @@ def _build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--addons-git-ref", default=None)
     pc.add_argument("--needs-enterprise", action="store_true", default=None)
     pc.add_argument("--enterprise-source", default=None)
+    pc.add_argument("--agent-name", default=None,
+                   help="agent the launcher drives for this repo's issues "
+                        "(opencode|claude-code); default opencode")
+    pc.add_argument("--agent-system-prompt", default=None,
+                   help="project system prompt for the agent (literal text or "
+                        "@file). Empty = use the built-in agent-system-prompt.md")
     _add_ssh_args(pc)
     _add_mask_args(pc)
     pc.add_argument("--json", action="store_true")
@@ -836,6 +859,13 @@ def _build_parser() -> argparse.ArgumentParser:
     pu.add_argument("--no-needs-enterprise", dest="needs_enterprise",
                     action="store_false")
     pu.add_argument("--enterprise-source", default=None)
+    pu.add_argument("--agent-name", default=None,
+                   help="agent the launcher drives for this repo's issues "
+                        "(opencode|claude-code); default opencode")
+    pu.add_argument("--agent-system-prompt", default=None,
+                   help="project system prompt for the agent (literal text or "
+                        "@file to read from a file). Empty = use the built-in "
+                        "agent-system-prompt.md")
     _add_ssh_args(pu)
     _add_mask_args(pu)
     pu.set_defaults(func=cmd_profile_update)
@@ -930,12 +960,15 @@ def _build_parser() -> argparse.ArgumentParser:
     ew.add_argument("--poll", type=int, default=10)
     ew.set_defaults(func=cmd_env_wait)
 
-    ea = esub.add_parser("agent", help="invoke the AI agent (ralph/opencode) inside an env")
+    ea = esub.add_parser("agent", help="invoke the AI agent (opencode/claude-code) inside an env")
     ea.add_argument("env_id")
     ea.add_argument("task", help="task string for the agent (e.g. the issue summary)")
     ea.add_argument("--agent", default="opencode",
-                    help="underlying agent ralph drives (opencode|claude-code|codex|...)")
-    ea.add_argument("--max-iterations", type=int, default=15)
+                    help="agent to invoke headlessly (opencode|claude-code); superpowers drives it")
+    ea.add_argument("--max-iterations", type=int, default=15,
+                    help="kept for compat; the agent self-drives via superpowers")
+    ea.add_argument("--timeout", type=int, default=3600,
+                    help="wall-clock cost guard in seconds (default 3600)")
     ea.add_argument("--issue", default=None, help="github issue ref for context")
     ea.add_argument("--system-prompt", default=None,
                     help="path to a project system prompt file (default: built-in)")

@@ -9,7 +9,8 @@ into a running odoo-synth env with an AI agent working on it:
 2. `issue_to_env.py` — the host-agnostic launcher: matches the issue's repo URL
    to an odoo-synth profile (the latest preset for that repo) -> creates a Coder
    env from the profile's latest mask run -> labels it `iss-<n>-<slug>` -> drives
-   opencode via ralph-wiggum with the issue details + project system prompt.
+   the agent (opencode/claude-code, driven by superpowers) with the issue
+   details + per-profile system prompt.
 
 ## Design (why the Coder server, not a dev VM)
 
@@ -21,7 +22,7 @@ into a running odoo-synth env with an AI agent working on it:
                                           ▼
                                      match repo URL -> profile (S3)
                                      latest mask run -> `coder create`
-                                     wait -> ralph opencode (in the new env)
+                                     wait -> agent (opencode/claude-code) via superpowers
 ```
 
 - The Coder server is the only always-on box; a dev VM is ephemeral, so a
@@ -46,10 +47,13 @@ into a running odoo-synth env with an AI agent working on it:
    `iss-<number>-<short-title-slug>` (e.g. `iss-42-fix-login-500`).
 3. **Invoke opencode in the env with issue details.** `wait_for_env` polls the
    build to `running`, then `run_agent` runs
-   `ralph "<task>" --agent opencode --max-iterations N` over `coder ssh`, the
-   task being the issue title/body/URL.
-4. **ralph-wiggum attached.** ralph (baked into the golden AMI) is the
-   autonomous loop driving opencode; `--agent` can switch to claude-code/etc.
+   `opencode run "<task>"` (or `claude -p "<task>"`) over `coder ssh`, the
+   task being the issue title/body/URL. A wall-clock timeout caps cost.
+4. **superpowers attached.** superpowers (the agentic-skills plugin baked
+   into the golden AMI) loads inside the agent's session and drives it
+   autonomously: brainstorm -> plan -> git-worktree -> TDD subagent dev ->
+   review -> finish branch (merge/PR). The agent + system prompt come from the
+   matched profile (per-preset config), with env-var / global-file fallbacks.
 5. **System prompt provision (Phase 1).**
    `coder/templates/odoo-synth-env/agent-system-prompt.md` is the placeholder,
    staged into the env as `AGENT_CONTEXT.md` and (if the repo ships none)

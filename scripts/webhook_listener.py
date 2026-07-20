@@ -20,7 +20,8 @@ Why the Coder server host:
 The launcher (scripts/issue_to_env.py) is host-agnostic: it matches the issue's
 repo URL -> profile (from S3) -> latest successful mask run -> `coder create`
 with the profile's params (= the same preset the Coder dashboard offers), then
-labels the env `iss-<n>-<slug>` and drives opencode via ralph-wiggum.
+labels the env `iss-<n>-<slug>` and drives the agent (opencode/claude-code)
+via superpowers inside the env.
 
 FOLDED BEHIND CADDY (deploy/13 + deploy/14): the listener binds 127.0.0.1 ONLY
 -- it has NO public port. Caddy on :443 routes /webhook -> 127.0.0.1:8080

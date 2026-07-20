@@ -178,6 +178,27 @@ data "coder_parameter" "upgrade_modules" {
   order        = 16
 }
 
+# Agent the launcher drives for this profile's issues (opencode|claude-code).
+# Surfaced as a preset parameter so a profile author picks it once per repo.
+data "coder_parameter" "agent_name" {
+  name         = "agent_name"
+  display_name = "AI agent the launcher drives (opencode|claude-code)."
+  type         = "string"
+  default      = "opencode"
+  order        = 17
+}
+
+# Per-project system prompt (base64). The startup script decodes + stages it
+# as AGENT_CONTEXT.md / AGENT.md so the agent follows the project context.
+# Empty = the launcher/template falls back to the built-in agent-system-prompt.md.
+data "coder_parameter" "agent_system_prompt_b64" {
+  name         = "agent_system_prompt_b64"
+  display_name = "Base64 of the per-project agent system prompt (empty = built-in)."
+  type         = "string"
+  default      = ""
+  order        = 18
+}
+
 # --- Template presets --------------------------------------------------------
 # Presets are auto-generated from the profile store by deploy/_gen_presets.py
 # into presets.tf (one preset per profile that has a built image + a successful
@@ -253,6 +274,8 @@ resource "coder_agent" "main" {
     ODOO_MASTER_PASSWORD="${data.coder_parameter.odoo_master_password.value}"
     ODOO_CONF_EXTRA_B64="${data.coder_parameter.odoo_conf_extra_b64.value}"
     UPGRADE_MODULES="${data.coder_parameter.upgrade_modules.value}"
+    AGENT_NAME="${data.coder_parameter.agent_name.value}"
+    AGENT_SYSTEM_PROMPT_B64="${data.coder_parameter.agent_system_prompt_b64.value}"
     ADMIN_PASS="${local.admin_password}"
     WORKSPACE="/home/dev/workspace"
     REPO_DIR="$WORKSPACE/repo"
@@ -776,8 +799,16 @@ EISVC
 ## AI agents installed (on the AMI)
 - claude   -- Claude Code (Anthropic). API key from your Coder user secret `anthropic-api-key`.
 - opencode -- open-source agent. Web app on the workspace page; add a provider with: opencode auth
-- ralph    -- autonomous loop over an agent. e.g. ralph "fix the login 500" --agent claude-code --max-iterations 10
-              (agents: opencode, claude-code, codex, copilot, cursor-agent, qwen-code)
+- superpowers -- agentic-skills plugin (TDD, planning, git-worktrees, code review) loaded for both
+              claude and opencode. It drives the agent autonomously through a task: brainstorm ->
+              plan -> worktree -> TDD subagent dev -> review -> finish branch (merge/PR).
+- obscura  -- headless browser for when you need to view a web page or test Odoo UI. See AGENT_CONTEXT.md.
+
+## When you need a browser
+Do NOT launch a GUI browser. Use obscura (installed on the AMI):
+- Fetch a page: `obscura fetch http://127.0.0.1:18069/web/login --dump html`
+- Get text/title: `obscura fetch <url> --dump text` or `--eval "document.title"`
+- CDP server (Puppeteer/Playwright): `obscura serve --port 9222` then connect to ws://127.0.0.1:9222
 CMDOC
       chown dev:dev /home/dev/workspace/CLAUDE.md 2>/dev/null || true
 
@@ -802,7 +833,7 @@ CCSVC
 
       # OpenCode: same ttyd-served-TUI pattern as Claude Code, on a separate
       # port (8092) so both apps can run side by side. OpenCode is a TUI by
-      # default; `ralph` can drive it (or Claude) in an autonomous loop.
+      # default; superpowers (loaded from opencode.json) drives it autonomously.
       ln -sf /usr/local/bin/opencode /home/dev/.local/bin/opencode 2>/dev/null
       cat > /etc/systemd/system/opencode.service <<OCSVC
 [Unit]
@@ -824,6 +855,25 @@ OCSVC
       echo "[env] agent CLIs not found on AMI -- skipping Claude Code / OpenCode apps"
     fi
     ) || echo "[env] agent-app setup failed; continuing (Claude/OpenCode apps may be unavailable)"
+
+    # --- 7b. stage the per-project agent system prompt ---
+    # The profile's agent_system_prompt (base64) is decoded into
+    # AGENT_CONTEXT.md (a stable sibling of the repo) and AGENT.md (in the
+    # repo cwd, only if the repo ships none) so the agent reads it on start.
+    # opencode reads AGENT.md / opencode.json from cwd; Claude Code reads
+    # CLAUDE.md. Empty prompt = the launcher supplies the built-in default.
+    if [ -n "$AGENT_SYSTEM_PROMPT_B64" ]; then
+      prompt="$(printf '%%s' "$AGENT_SYSTEM_PROMPT_B64" | base64 -d 2>/dev/null || true)"
+      if [ -n "$prompt" ]; then
+        printf '%%s\n' "$prompt" > "$WORKSPACE/AGENT_CONTEXT.md"
+        chown dev:dev "$WORKSPACE/AGENT_CONTEXT.md" 2>/dev/null || true
+        if [ -d "$REPO_DIR" ] && [ ! -f "$REPO_DIR/AGENT.md" ]; then
+          cp "$WORKSPACE/AGENT_CONTEXT.md" "$REPO_DIR/AGENT.md"
+          chown dev:dev "$REPO_DIR/AGENT.md" 2>/dev/null || true
+        fi
+        echo "[env] staged per-project agent system prompt -> AGENT_CONTEXT.md"
+      fi
+    fi
 
     # --- 8. port-forwards Coder opens so the dev reaches odoo ---
     # `coder_port` resources below tell Coder to proxy these through the tunnel.

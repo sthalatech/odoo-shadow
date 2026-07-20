@@ -17,9 +17,12 @@ database, with an addons repo live-mounted for development.
     and it's auto-injected into every workspace you own.
   - **OpenCode** — `opencode` (open-source agent). Served as a web terminal
     app; configure a provider with `opencode auth`.
-  - **Ralph Wiggum** — `ralph`, an autonomous agentic loop over any of the
-    agents above: e.g. `ralph "fix the login 500" --agent claude-code
-    --max-iterations 10`.
+  - **Superpowers** — `superpowers`, an agentic-skills plugin loaded for both
+    Claude Code and OpenCode. It drives the agent autonomously through a task:
+    brainstorm -> plan -> git-worktree -> TDD subagent dev -> review -> finish
+    branch (merge/PR). No external loop needed.
+  - **Obscura** — `obscura`, a lightweight headless browser for when the agent
+    needs to view a web page or test the Odoo UI: `obscura fetch <url> --dump html`.
 
 ## Create with the preset
 

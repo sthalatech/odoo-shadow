@@ -6,7 +6,7 @@
 # existing Coder SG so GitHub can reach it. GitHub POSTs `issues` events from
 # the profile's addons repo here; the listener verifies the HMAC signature and
 # runs scripts/issue_to_env.py to create an env from the latest preset for that
-# repo + drive opencode via ralph-wiggum.
+# repo + drive the agent (opencode/claude-code via superpowers).
 #
 # Why the Coder server (not a dev VM): it is the only always-on box, it already
 # holds CODER_URL + CODER_SESSION_TOKEN, and its IAM role + the dumps bucket

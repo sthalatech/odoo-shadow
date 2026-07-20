@@ -149,7 +149,8 @@ def update(profile_id: str, payload: dict[str, Any]) -> None:
     fields: dict[str, Any] = {}
     for k in ("label", "description", "odoo_series", "odoo_git_url",
               "odoo_git_ref", "addons_git_url", "addons_git_ref",
-              "enterprise_source", "odoo_conf_extra", "masking_rules"):
+              "enterprise_source", "odoo_conf_extra", "masking_rules",
+              "agent_name", "agent_system_prompt"):
         if k in payload:
             fields[k] = payload[k]
     if "needs_enterprise" in payload:
