@@ -405,7 +405,14 @@ def ssh_exec(env_id: str, command: str, timeout: int = 600) -> tuple[int, str]:
     if not env:
         raise ValueError(f"environment not found: {env_id}")
     name = env.get("workspace_name") or env_id
-    cmd = ["coder", "ssh", "--wait=yes", name, "--", "bash", "-lc", command]
+    # NOTE: do NOT use `-- bash -lc <command>` here. Coder v2.34 ssh splits
+    # the argv after `--` on whitespace and only passes the first token to
+    # `bash -lc`, silently truncating multi-word commands to their first word
+    # (e.g. `echo hi > f` runs just `echo`). Passing the command directly
+    # (no `--`, no `bash -lc`) lets coder ssh run it via the user's login
+    # shell, which preserves the full command. --wait=yes auto-starts a
+    # stopped workspace.
+    cmd = ["coder", "ssh", "--wait=yes", name, command]
     try:
         p = subprocess.run(cmd, env={**os.environ, **_coder_env()},
                            capture_output=True, text=True, timeout=timeout, check=False)
