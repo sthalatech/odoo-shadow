@@ -859,7 +859,7 @@ Wants=network-online.target
 Type=simple
 User=root
 Environment=HOME=/root
-ExecStart=/usr/bin/ttyd -i 127.0.0.1 -p 8091 -t fontSize=14 sudo -u dev HOME=/home/dev bash -lc 'cd /home/dev/workspace && claude'
+ExecStart=/usr/bin/ttyd -i 127.0.0.1 -p 8091 -t fontSize=14 sudo -u dev HOME=/home/dev bash -lc 'cd /home/dev/workspace/repo 2>/dev/null || cd /home/dev/workspace; claude'
 Restart=always
 [Install]
 WantedBy=multi-user.target
@@ -880,7 +880,7 @@ Wants=network-online.target
 Type=simple
 User=root
 Environment=HOME=/root
-ExecStart=/usr/bin/ttyd -i 127.0.0.1 -p 8092 -t fontSize=14 sudo -u dev HOME=/home/dev bash -lc 'cd /home/dev/workspace && opencode'
+ExecStart=/usr/bin/ttyd -i 127.0.0.1 -p 8092 -t fontSize=14 sudo -u dev HOME=/home/dev bash -lc 'cd /home/dev/workspace/repo 2>/dev/null || cd /home/dev/workspace; opencode'
 Restart=always
 [Install]
 WantedBy=multi-user.target
