@@ -93,11 +93,20 @@ done
 log "shipping repo + listener to the Coder server ..."
 REMOTE_DIR="/opt/odoo-synth-coder"
 ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo mkdir -p \"$REMOTE_DIR\" && sudo chown -R \"\$USER:\$USER\" \"$REMOTE_DIR\""
-# rsync if available, else tar over ssh
+# rsync if available, else tar over ssh. CRITICAL: ship only the CODE, never
+# the runtime stores -- the Coder server holds its own envs.yaml / profiles /
+# runs (live per-issue workspace linkage + secret ARNs). Syncing them from a
+# dev VM would clobber the server's records (e.g. an env a webhook created
+# since the last deploy). Exclude them defensively even though controlpanel/***
+# is included.
 if command -v rsync >/dev/null 2>&1; then
   rsync -az --delete \
     --include='scripts/' --include='scripts/***' \
     --include='controlpanel/' --include='controlpanel/***' \
+    --exclude='controlpanel/backend/envs.yaml' \
+    --exclude='controlpanel/backend/profiles/' \
+    --exclude='controlpanel/backend/runs.yaml' \
+    --exclude='controlpanel/backend/__pycache__/' \
     --include='deploy/' --include='deploy/_yaml_to_env.py' --include='deploy/lib.sh' \
     --exclude='deploy/state.env' \
     --include='coder/templates/odoo-synth-env/agent-system-prompt.md' \
@@ -106,6 +115,9 @@ if command -v rsync >/dev/null 2>&1; then
     "$HERE/" "$SSH_TARGET:$REMOTE_DIR/"
 else
   tar -czf - -C "$HERE" scripts controlpanel \
+    --exclude='controlpanel/backend/envs.yaml' \
+    --exclude='controlpanel/backend/profiles' \
+    --exclude='controlpanel/backend/runs.yaml' \
     deploy/_yaml_to_env.py deploy/lib.sh \
     coder/templates/odoo-synth-env/agent-system-prompt.md \
     | ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "tar -xzf - -C $REMOTE_DIR"
