@@ -399,6 +399,14 @@ resource "coder_agent" "main" {
             || true
         fi
         if [ -n "$GIT_TOKEN" ] && [ -d "$REPO_DIR/.git" ]; then
+          # Keep the token in the push URL so the agent can push without
+          # re-auth. origin fetch stays the bare URL (clean); the push URL
+          # embeds the token. Survives agent restarts; no credential helper
+          # or extra config files needed.
+          sudo -u dev git -C "$REPO_DIR" remote set-url origin "$REPO_URL" || true
+          PUSH_URL="$(printf '%s' "$REPO_URL" | sed -E "s#https://#https://x-access-token:$GIT_TOKEN@#")"
+          sudo -u dev git -C "$REPO_DIR" remote set-url --push origin "$PUSH_URL" || true
+        elif [ -d "$REPO_DIR/.git" ]; then
           sudo -u dev git -C "$REPO_DIR" remote set-url origin "$REPO_URL" || true
         fi
       fi
