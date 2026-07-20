@@ -87,6 +87,72 @@ def _workspace_label(issue_number: str, title: str) -> str:
     return f"iss-{n or 'x'}-{_short_slug(title)}"
 
 
+def _envs_for_issue(repo_url: str, issue_number: str) -> list[dict]:
+    """Find every env record whose repo + issue match `issue_number` in
+    `repo_url`. The linkage key is (normalized repo, issue number) -- the same
+    pair the launcher wrote when it created the env -- so teardown hits only
+    the workspace(s) for THIS issue in THIS repo, never another issue's.
+
+    Returns the env records (newest first). An issue may have more than one if
+    it was reopened/re-launched (each launch is a separate env record); each is
+    a distinct Coder workspace named iss-<n>-<slug>, all torn down here.
+    """
+    n = re.sub(r"[^0-9]", "", issue_number or "")
+    if not n:
+        return []
+    target_repo = _normalize_repo(repo_url)
+    # the launcher stores issue as "#492" (issue_ref); match the bare number so
+    # the comparison is robust to the leading '#'/formatting.
+    out = []
+    for e in store.list_environments(limit=500):
+        e_repo = _normalize_repo(e.get("repo_url") or "")
+        e_issue = re.sub(r"[^0-9]", "", str(e.get("issue") or ""))
+        # repo match: prefer the stored repo_url; fall back to the matched
+        # profile's addons repo when the env record predates repo_url storage.
+        if not e_repo:
+            pid = e.get("profile_id")
+            if pid:
+                prof = store.get_profile(pid) or {}
+                e_repo = _normalize_repo(prof.get("addons_git_url") or "")
+        if target_repo and e_repo and e_repo != target_repo:
+            continue
+        if e_issue == n:
+            out.append(e)
+    out.sort(key=lambda x: x.get("created_at", 0), reverse=True)
+    return out
+
+
+def teardown_for_issue(repo_url: str, issue_number: str) -> int:
+    """Tear down the Coder workspace(s) for a closed issue. Idempotent + safe:
+    matches envs by (repo, issue number) so only THIS issue's workspace(s) are
+    deleted; other issues' envs are untouched. Returns 0 on success (including
+    the no-match case, which is a benign "nothing to do")."""
+    envs = _envs_for_issue(repo_url, issue_number)
+    if not envs:
+        _log(f"close #{issue_number}: no env found for repo {_normalize_repo(repo_url)}; nothing to tear down")
+        return 0
+    _log(f"close #{issue_number}: tearing down {len(envs)} env(s) for repo {_normalize_repo(repo_url)}")
+    rc = 0
+    for e in envs:
+        env_id = e["id"]
+        name = e.get("workspace_name") or env_id
+        st = e.get("status") or ""
+        # already-terminated envs have no live Coder workspace; skip the API
+        # call (it would 404) but still drop the stale store record.
+        if st in ("terminated", "deleted"):
+            _log(f"  env {env_id} ({name}) already {st}; dropping stale record")
+            store.delete_environment(env_id)
+            continue
+        try:
+            _log(f"  tearing down env {env_id} (workspace {name}, status={st})")
+            environments.teardown(env_id)
+            _log(f"  torn down env {env_id} (workspace {name})")
+        except Exception as exc:  # noqa: BLE001
+            _log(f"  ERROR tearing down env {env_id} ({name}): {exc!r}")
+            rc = 5
+    return rc
+
+
 def _build_task(issue_ref: str, title: str, url: str, body: str,
                 pr_base: str) -> str:
     """Build the task string sent to the agent.
@@ -202,6 +268,17 @@ def latest_successful_mask_run(profile_id: str) -> str | None:
 
 
 def main() -> int:
+    # --teardown: invoked by the webhook listener on issue close. Tearing down
+    # the env for a closed issue frees its EC2 instance. Linkage is by
+    # (repo, issue number); see teardown_for_issue.
+    if "--teardown" in sys.argv[1:]:
+        issue_number = os.environ.get("ISSUE_NUMBER", "").strip()
+        issue_repo = os.environ.get("ISSUE_REPO_URL", "").strip()
+        if not issue_repo or not issue_number:
+            _log("ERROR: --teardown requires ISSUE_REPO_URL + ISSUE_NUMBER")
+            return 1
+        return teardown_for_issue(issue_repo, issue_number)
+
     issue_number = os.environ.get("ISSUE_NUMBER", "").strip()
     issue_title = os.environ.get("ISSUE_TITLE", "").strip()
     issue_body = os.environ.get("ISSUE_BODY", "").strip()

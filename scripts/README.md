@@ -18,11 +18,14 @@ into a running odoo-synth env with an AI agent working on it:
    GitHub issue opened                Coder server (always-on EC2)
    in the addons repo   ──webhook──▶  webhook_listener.py (port 8080, public)
    (e.g. erp.life.in)                     │
-                                          │ spawns issue_to_env.py
+                                          │ issue.opened  -> issue_to_env.py (create + agent)
+                                          │ issue.closed  -> issue_to_env.py --teardown (delete ws)
                                           ▼
-                                     match repo URL -> profile (S3)
+                                     match repo URL -> profile (S3)   [opened]
                                      latest mask run -> `coder create`
                                      wait -> agent (opencode/claude-code) via superpowers
+                                     ── or [closed] ──
+                                     match (repo, issue #) -> `coder delete` (frees EC2)
 ```
 
 - The Coder server is the only always-on box; a dev VM is ephemeral, so a
@@ -107,6 +110,22 @@ github:
 If unset, `deploy/13_webhook_listener.sh --secret ...` sets it directly on the
 server; the service is fail-closed (rejects all POSTs) until a secret exists.
 
+## Teardown on issue close
+
+The same webhook also handles `issues.closed`: it runs
+`issue_to_env.py --teardown`, which matches the env record(s) by **(repo, issue
+number)** and deletes the Coder workspace for that issue — freeing the EC2
+instance so closed issues don't keep a dev env running. The linkage is exact:
+the launcher wrote the env record with the issue's repo URL + `#N`, so
+teardown only ever deletes the workspace created for *that* issue in *that*
+repo, never another issue's. It's idempotent (no-match = benign no-op;
+already-terminated envs just drop their stale store record). Manual form:
+
+```bash
+ISSUE_NUMBER=492 ISSUE_REPO_URL=https://github.com/IshaFoundationIT/prs-backend \
+  .venv/bin/python3 scripts/issue_to_env.py --teardown
+```
+
 ## Manual / CLI use (same primitives, ad-hoc)
 
 ```bash
@@ -127,5 +146,8 @@ odoo-synth env agent <env_id> "Resolve #42: fix the login 500" --agent opencode 
 
 ## Exit codes (issue_to_env.py)
 
-`0` env + agent launched · `1` no matching profile/dump · `2` env create failed
-· `3` env not running in time · `4` agent launch failed.
+`0` env + agent launched (or teardown OK / nothing to tear down) · `1` no
+matching profile/dump (open) / missing `ISSUE_REPO_URL`+`ISSUE_NUMBER`
+(teardown) · `2` env create failed · `3` env not running in time · `4` agent
+launch failed · `5` teardown of at least one env failed (others may have
+succeeded).

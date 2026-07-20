@@ -5,9 +5,15 @@ Runs ON THE CODER SERVER (the always-on control plane at CODER_SERVER_IP), NOT
 on a dev VM. GitHub POSTs `issues` events from the *profile's addons repo*
 (e.g. IshaFoundationIT/erp.life.in) to this listener; it verifies the
 HMAC-SHA256 signature with a shared webhook secret, dedupes by
-X-GitHub-Delivery (replay protection), and on `issue.opened` runs
-scripts/issue_to_env.py in a background thread (GitHub gets a fast 200 while the
-env boots + agent runs, which takes many minutes).
+X-GitHub-Delivery (replay protection), and:
+  * on `issue.opened`  -> runs scripts/issue_to_env.py in a background thread
+    (GitHub gets a fast 200 while the env boots + agent runs, which takes many
+    minutes).
+  * on `issue.closed`  -> runs scripts/issue_to_env.py --teardown in a
+    background thread to delete the Coder workspace for that issue, freeing its
+    EC2 instance. Teardown is scoped by (repo, issue number) so ONLY the closed
+    issue's workspace is deleted -- never another issue's (see
+    issue_to_env.teardown_for_issue).
 
 Why the Coder server host:
   - It is the only always-on box in the stack; a dev VM is ephemeral.
@@ -133,6 +139,34 @@ def _run_launcher(env: dict) -> None:
         print(f"[launcher] issue #{issue} EXCEPTION: {exc!r}", file=sys.stderr, flush=True)
 
 
+def _run_tearer(env: dict) -> None:
+    """Tear down the env for a closed issue. Same launcher, --teardown mode:
+    it matches envs by (repo, issue number) so only the closed issue's
+    workspace(s) are deleted -- never another issue's. Runs in the background
+    (Coder `coder delete` is fast, but GitHub must not wait on it)."""
+    import sys
+    issue = env.get("ISSUE_NUMBER", "?")
+    print(f"[teardown] issue #{issue} starting ({PY} {LAUNCHER} --teardown)",
+          flush=True)
+    try:
+        proc = subprocess.run(
+            [PY, str(LAUNCHER), "--teardown"],
+            env={**os.environ, **env},
+            cwd=str(REPO_ROOT),
+            capture_output=True, text=True, timeout=10 * 60, check=False,
+        )
+        out = (proc.stdout or "").rstrip()
+        err = (proc.stderr or "").rstrip()
+        print(f"[teardown] issue #{issue} rc={proc.returncode}", flush=True)
+        if out:
+            print(out, flush=True)
+        if err:
+            print(err, file=sys.stderr, flush=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[teardown] issue #{issue} EXCEPTION: {exc!r}", file=sys.stderr,
+              flush=True)
+
+
 @app.post("/webhook")
 def webhook():
     payload = request.get_data()
@@ -150,7 +184,7 @@ def webhook():
     except Exception:  # noqa: BLE001
         abort(400)
     action = data.get("action")
-    if action != "opened":
+    if action not in ("opened", "closed"):
         return (f"ignored: action={action}\n", 200)
     issue = data.get("issue") or {}
     repo = data.get("repository") or {}
@@ -160,11 +194,16 @@ def webhook():
         "ISSUE_BODY": issue.get("body") or "",
         "ISSUE_URL": issue.get("html_url") or "",
         # the addons repo the issue belongs to -> matches an odoo-synth profile
+        # (and on close, scopes teardown to THIS repo's env for this issue).
         "ISSUE_REPO_URL": repo.get("clone_url") or "",
     }
-    # fire-and-forget: env boot takes minutes; GitHub must not wait for it
-    threading.Thread(target=_run_launcher, args=(env,), daemon=True).start()
-    return (json.dumps({"accepted": True, "issue": env["ISSUE_NUMBER"]}), 200,
+    # fire-and-forget: env boot takes minutes; GitHub must not wait for it.
+    # On close, the env is torn down (EC2 freed) -- the linkage is (repo,
+    # issue number) so only the closed issue's workspace is deleted.
+    target = _run_tearer if action == "closed" else _run_launcher
+    threading.Thread(target=target, args=(env,), daemon=True).start()
+    return (json.dumps({"accepted": True, "action": action,
+                        "issue": env["ISSUE_NUMBER"]}), 200,
             {"Content-Type": "application/json"})
 
 
