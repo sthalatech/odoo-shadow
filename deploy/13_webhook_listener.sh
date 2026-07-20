@@ -98,12 +98,15 @@ if command -v rsync >/dev/null 2>&1; then
   rsync -az --delete \
     --include='scripts/' --include='scripts/***' \
     --include='controlpanel/' --include='controlpanel/***' \
+    --include='deploy/' --include='deploy/_yaml_to_env.py' --include='deploy/lib.sh' \
+    --exclude='deploy/state.env' \
     --include='coder/templates/odoo-synth-env/agent-system-prompt.md' \
     --include='coder/templates/odoo-synth-env/' \
     --exclude='*' \
     "$HERE/" "$SSH_TARGET:$REMOTE_DIR/"
 else
   tar -czf - -C "$HERE" scripts controlpanel \
+    deploy/_yaml_to_env.py deploy/lib.sh \
     coder/templates/odoo-synth-env/agent-system-prompt.md \
     | ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "tar -xzf - -C $REMOTE_DIR"
 fi
