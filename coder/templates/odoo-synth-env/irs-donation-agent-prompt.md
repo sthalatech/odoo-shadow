@@ -53,9 +53,12 @@ tree. When the task is done:
 2. **Push** the branch: `git push -u origin <branch>`. The env has git
    credentials (Coder SSH key for SSH URLs; a token for HTTPS URLs) so pushes
    work without extra setup.
-3. Open a pull request if the repo's workflow expects one (superpowers'
-   `finishing-a-development-branch` skill presents merge/PR/keep/discard
-   options — choose PR).
+3. **Open a pull request** with `gh pr create --base uat` (the `gh` CLI is
+   installed and `GH_TOKEN` is in your environment — same token as the git
+   push). Push first, then create the PR against `uat`. Use `--title` and
+   `--body` with a clear summary + "Resolves #N". If `gh` is unavailable or
+   `GH_TOKEN` is unset, say so explicitly in your final summary — do NOT
+   silently skip the PR.
 
 If you cannot push (auth failure, etc.), say so explicitly in your final
 summary — do NOT silently leave changes uncommitted.

@@ -480,23 +480,27 @@ def run_agent(env_id: str, task: str, *, agent: str = "opencode",
         raise ValueError(f"environment not found: {env_id}")
     name = env.get("workspace_name") or env_id
     _stage_agent_context(env_id, issue or "", task, system_prompt or "")
-    # Shell-quote the task: replace ' with the standard '"'"' escape so the
-    # single-quoted arg to opencode/claude is safe.
-    safe_task = (task or "").replace("'", "'\"'\"'")
-    # Direct headless invocation. opencode run / claude -p run once; superpowers
-    # (loaded from the staged opencode.json / ~/.claude/plugins) drives the
-    # multi-step work inside that single session.
+    # Direct headless invocation. opencode run / claude -p run once;
+    # superpowers (loaded from the staged opencode.json / ~/.claude/plugins)
+    # drives the multi-step work inside that single session. The task text is
+    # base64-encoded below to avoid shell-quoting issues.
+    # Source the per-env agent env file (GH_TOKEN for `gh` PR creation;
+    # written by the env startup script from the same Secrets-Manager git
+    # token used for the push URL). The task text is base64-encoded to avoid
+    # any shell-quoting issues (issue bodies can contain any character).
+    import base64
+    task_b64 = base64.b64encode((task or "").encode()).decode()
     if agent == "claude-code":
-        agent_cmd = f"claude -p '{safe_task}'"
+        agent_inner = 'claude -p "$TASK"'
     else:
-        # --auto: auto-approve permissions/plan checkpoints so the headless
-        # session proceeds autonomously (superpowers' brainstorming skill
-        # presents a plan and waits for approval; without --auto the run exits
-        # after presenting the design with no one to approve it).
-        agent_cmd = f"opencode run --auto '{safe_task}'"
+        agent_inner = 'opencode run --auto "$TASK"'
     cmd = (
+        f"sudo -u dev HOME=/home/dev bash -c '"
+        f"set -a; . /home/dev/.config/agent-env 2>/dev/null || true; set +a; "
+        f"TASK=$(printf %s {task_b64} | base64 -d); "
         f"cd /home/dev/workspace/repo 2>/dev/null || cd /home/dev/workspace; "
-        f"sudo -u dev HOME=/home/dev {agent_cmd}"
+        f"{agent_inner}"
+        f"'"
     )
     rc, out = ssh_exec(env_id, cmd, timeout=timeout)
     return {"exit_code": rc, "output": out, "command": cmd,
