@@ -424,7 +424,7 @@ resource "coder_agent" "main" {
     if ! command -v gh >/dev/null 2>&1; then
       GH_ARCH="$(uname -m)"
       case "$GH_ARCH" in x86_64) GH_ARCH="amd64" ;; aarch64) GH_ARCH="arm64" ;; *) GH_ARCH="" ;; esac
-      if [ -n "$GH_ARCH" ] && curl -fsSL "https://github.com/cli/cli/releases/latest/download/gh_${GH_ARCH}.tar.gz" \
+      if [ -n "$GH_ARCH" ] && curl -fsSL "https://github.com/cli/cli/releases/latest/download/gh_$${GH_ARCH}.tar.gz" \
            -o /tmp/gh.tgz 2>/dev/null; then
         tar -xzf /tmp/gh.tgz -C /tmp 2>/dev/null
         GH_BIN="$(find /tmp -name gh -type f -path '*/bin/*' 2>/dev/null | head -1)"
