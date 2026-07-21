@@ -264,6 +264,38 @@ SQL
   fi
 fi
 
+# 4c. varied realistic product names. greenmask's Replace emits a single
+#     constant ("Masked Product") for the jsonb product_template.name, which
+#     is correct/restorable but shows identical names for every product in the
+#     dev replica. Post-restore we overwrite with a per-row deterministic name
+#     from an adjective+noun pool (no external dep), written as valid jsonb
+#     so Odoo's translatable field stays well-formed. Idempotent + safe: the
+#     column is non-unique (verified), so no index collision risk.
+if [ -n "${GM_VARIED_PRODUCT_NAMES:-1}" ]; then
+  _HAS_PT="$($PSQL_T -A -t -c "SELECT to_regclass('public.product_template')" 2>/dev/null || true)"
+  if [ "$_HAS_PT" = "product_template" ]; then
+    say "assigning varied realistic product names ..."
+    $PSQL_T -v ON_ERROR_STOP=1 <<'PN'
+UPDATE product_template
+SET name = jsonb_build_object('en_US',
+  (ARRAY[
+    'Cedar','Maple','Ivory','Crimson','Azure','Amber','Slate','Coral',
+    'Onyx','Willow','Bronze','Indigo','Saffron','Jade','Ruby','Pearl',
+    'Oak','Flint','Hazel','Cobalt','Teal','Marble','Ash','Russet','Ebony'
+  ])[1 + ((id * 7) % 25)]
+  || ' ' ||
+  (ARRAY[
+    'Throw Blanket','Cotton Scarf','Ceramic Mug','Linen Tote','Bracelet',
+    'Incense Holder','Journal','Wall Print','Yoga Mat','Meditation Cushion',
+    'T-Shirt','Hoodie','Tumbler','Notebook','Pendant','Candle Set','Statue',
+    'Prayer Beads','Copper Bottle','Shawl','Coaster Set','Diffuser','Lamp','Bag'
+  ])[1 + ((id * 13) % 24)])
+WHERE name IS NOT NULL;
+PN
+    say "product names randomized."
+  fi
+fi
+
 # 5. neutralize (guard each table: modules like fetchmail/payment may be absent)
 #    each step is individually toggleable via NEUTRALIZE_* env vars.
 say "neutralizing (mail=${NEUTRALIZE_MAIL} fetchmail=${NEUTRALIZE_FETCHMAIL} payment=${NEUTRALIZE_PAYMENT} smtp_param=${NEUTRALIZE_SMTP_PARAM} crons=${NEUTRALIZE_CRONS}) ..."
