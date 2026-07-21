@@ -114,17 +114,30 @@ ln -sfn "$SUPERPOWERS_DIR" /opt/.claude/plugins/superpowers
 # layout/paint engine -- Page.captureScreenshot is unimplemented, see upstream
 # issues #52/#121/#123 -- so it cannot take screenshots at all. Chrome for
 # Testing does both jobs, so we use it instead of maintaining two browsers.)
-# System shared libs Chrome needs (X11/cairo/pango/nss/alsa/...). --no-install-
-# recommends keeps the image lean; the t64/-0t64 package names are the 24.04
-# time64 transition -- apt resolves either spelling, so list both where they
-# differ and let apt skip the missing one.
-apt-get install -y --no-install-recommends \
+# System shared libs headless Chrome needs (X11/cairo/pango/nss/alsa/...).
+# --no-install-recommends keeps the image lean.
+#
+# IMPORTANT: the base AMI is Ubuntu 22.04 (jammy). On jammy the ALSA lib is
+# `libasound2`; `libasound2t64` is a 24.04-only (time64 transition) package
+# that does NOT exist on jammy. apt does NOT "skip" an unresolvable name in a
+# single install command -- it ABORTS the whole transaction, so listing both
+# (as we once did) installed *none* of the libs and Chrome failed with
+# "libasound.so.2 => not found" (and 12 others). `libasound2` is the right name
+# on both 22.04 (real) and 24.04 (transitional -> libasound2t64).
+#
+# Install one package per apt call so a single missing name can never block the
+# rest; tolerate (but log) any that won't resolve. (Verified on jammy: every
+# name below resolves.)
+for p in \
     libx11-6 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxi6 \
     libxrandr2 libxrender1 libxtst6 libxss1 libxkbcommon0 \
     libnss3 libcups2 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 \
     libatspi2.0-0 libgbm1 libpango-1.0-0 libcairo2 libfontconfig1 \
-    libfreetype6 libasound2 libasound2t64 \
-    fonts-liberation fonts-dejavu-core 2>/dev/null || true
+    libfreetype6 libasound2 \
+    fonts-liberation fonts-dejavu-core ; do
+    apt-get install -y --no-install-recommends "$p" >/dev/null 2>&1 \
+        || echo "  provision:WARN could not install $p (skipping)" >&2
+done
 CHROME_DIR="/opt/chrome-for-testing"
 mkdir -p "$CHROME_DIR"
 ARCH="$(uname -m)"
