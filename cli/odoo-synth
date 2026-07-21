@@ -681,7 +681,7 @@ def cmd_env_create(args) -> int:
         args.source_run_id, args.issue, args.dump_s3_uri,
         repo_url=args.repo_url, repo_branch=args.repo_branch,
         profile_id=args.profile_id,
-        name=args.name, upgrade_modules=args.upgrade_modules)
+        name=args.name)
     print(f"created environment {env_id}")
     return 0
 
@@ -960,9 +960,6 @@ def _build_parser() -> argparse.ArgumentParser:
     ec.add_argument("--name", default=None,
                     help="human-friendly Coder workspace name (e.g. iss-42-fix-login). "
                          "Coerced to [a-z0-9-]; falls back to the random env id when empty.")
-    ec.add_argument("--upgrade-modules", default=None,
-                    help="comma-separated discovered modules to upgrade at boot "
-                         "(empty = -u all, the generic schema-reconcile)")
     ec.set_defaults(func=cmd_env_create)
 
     ew = esub.add_parser("wait", help="wait for an env's workspace to reach running")

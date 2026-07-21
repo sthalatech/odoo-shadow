@@ -170,14 +170,6 @@ data "coder_parameter" "admin_password" {
   order        = 15
 }
 
-data "coder_parameter" "upgrade_modules" {
-  name         = "upgrade_modules"
-  display_name = "Comma-separated discovered modules to upgrade at boot (empty = -u all)."
-  type         = "string"
-  default      = ""
-  order        = 16
-}
-
 # Agent the launcher drives for this profile's issues (opencode|claude-code).
 # Surfaced as a preset parameter so a profile author picks it once per repo.
 data "coder_parameter" "agent_name" {
@@ -273,7 +265,6 @@ resource "coder_agent" "main" {
     DB_NAME="${data.coder_parameter.db_name.value}"
     ODOO_MASTER_PASSWORD="${data.coder_parameter.odoo_master_password.value}"
     ODOO_CONF_EXTRA_B64="${data.coder_parameter.odoo_conf_extra_b64.value}"
-    UPGRADE_MODULES="${data.coder_parameter.upgrade_modules.value}"
     AGENT_NAME="${data.coder_parameter.agent_name.value}"
     AGENT_SYSTEM_PROMPT_B64="${data.coder_parameter.agent_system_prompt_b64.value}"
     ADMIN_PASS="${local.admin_password}"
@@ -513,163 +504,6 @@ PY
             "UPDATE res_users SET login='admin', password='$ADMIN_HASH', active=true WHERE id=2;" \
             >/dev/null 2>&1 || true
         fi
-      fi
-      # --- 5b. module upgrade (reconcile source/code schema drift) -----------
-      # The masked DB is a pg_restore snapshot of the SOURCE; the cloned repo's
-      # addon code may be NEWER than the source snapshot (fields added to a
-      # model after the module was last upgraded on source). Odoo then 500s on
-      # UndefinedColumn. The canonical fix -- and the only correct one -- is a
-      # real module upgrade: `odoo-bin -u all` runs each installed module's
-      # _auto_init, which creates missing columns, indexes and constraints
-      # exactly as the code declares them. No hand-rolled ALTER TABLE.
-      # External-dep pins that block -u (e.g. isha_bank_integration's
-      # pycryptodome==3.9.8) are loosened at the manifest/build stage, not here.
-      # Only run once: if the marker table exists, the schema is already
-      # reconciled and we skip (idempotent across reboots).
-      NEED_UPGRADE=1
-      if docker exec env-db psql -U odoo -d "$DB_NAME" -tAc \
-           "SELECT 1 FROM information_schema.tables WHERE table_name='env_schema_reconciled'" \
-           2>/dev/null | grep -q 1; then
-        NEED_UPGRADE=0
-      fi
-      if [ "$NEED_UPGRADE" = "1" ]; then
-        # Upgrade target: a comma-separated list of discovered modules passed
-        # in UPGRADE_MODULES (from the profile's discovery), else "all" -- the
-        # generic schema-reconcile that reconciles the cloned addon code's
-        # schema against the restored (masked source) DB. This is NOT
-        # hard-scoped to any one repo: every ERP repo's modules discovered at
-        # build time flow through here the same way.
-        UP_MODULES="$${UPGRADE_MODULES:-all}"
-        [ -z "$UP_MODULES" ] && UP_MODULES="all"
-        # Relax exact-version external_dependencies pins in the LIVE-MOUNTED repo
-        # that have no prebuilt wheel for this image's Python / no compiler (e.g.
-        # isha_bank_integration pins pycryptodome==3.9.8, but the image ships a
-        # newer pycryptodome whose API is stable). The baked image copy at
-        # /mnt/extra-addons-custom is already loosened at build time, but the
-        # live-mounted clone at /mnt/live is FIRST in addons_path and shadows it
-        # with the original pinned manifest -- Odoo then enforces ==3.9.8
-        # against the installed 3.x and aborts -u all (UserError), so NO module
-        # upgrades and the schema never reconciles. Apply the same sed loosening
-        # the build uses, to the live repo, right before the upgrade. Idempotent
-        # + only runs once (guarded by NEED_UPGRADE / the reconciled marker).
-        if [ -d "$REPO_DIR" ]; then
-          find "$REPO_DIR" -name __manifest__.py -exec \
-            sed -i -E 's/pycryptodome[[:space:]]*==[[:space:]]*3\.9\.8/pycryptodome/g' {} + 2>/dev/null || true
-        fi
-        # Clean orphaned foreign-key rows before -u all. The masked dump is a
-        # pg_restore snapshot of the source; some parent tables come back empty
-        # (e.g. discuss_channel) while their children (discuss_channel_member)
-        # retain rows, leaving dangling FKs. Odoo's registry.check_foreign_keys
-        # then aborts -u all (ForeignKeyViolation) and the schema never
-        # reconciles. Sweep to a fixpoint: DELETE children whose FK column is
-        # NOT NULL and points at a missing parent; NULL nullable FK columns.
-        # Only single-column FKs are handled (matches the masker's own sweep).
-        # Data cleanup only -- no schema change; the masked replica is already
-        # an intentional subset. Runs once (guarded by NEED_UPGRADE).
-        docker exec -i env-db psql -U odoo -d "$DB_NAME" -v ON_ERROR_STOP=0 <<'ORPHAN' >>/home/dev/workspace/upgrade.log 2>&1
-DO $$ DECLARE
-  r record; n bigint; total bigint; passes int := 0;
-BEGIN
-  LOOP
-    total := 0; passes := passes + 1;
-    -- Derive intended parent<-child FK relationships from Odoo's own model
-    -- metadata (ir_model_fields many2one), NOT from pg_constraint: the FK
-    -- constraints themselves are often MISSING from the masked dump (pg_restore
-    -- silently skips ADD CONSTRAINT when the parent rows were absent), so a
-    -- pg_constraint-based sweep would miss exactly the orphans that make Odoo's
-    -- check_foreign_keys re-add the FK and fail. model/relation map to table
-    -- names by replacing '.' with '_'. Skip non-existent tables/columns.
-    FOR r IN
-      SELECT replace(f.model,'.','_') AS child, f.name AS child_col,
-             replace(f.relation,'.','_') AS parent
-      FROM ir_model_fields f
-      WHERE f.ttype = 'many2one'
-        AND f.relation IS NOT NULL AND f.relation <> ''
-        AND f.name LIKE '%\_id'
-    LOOP
-      BEGIN
-        EXECUTE format(
-          'DELETE FROM public.%I c WHERE c.%I IS NOT NULL AND NOT EXISTS '
-          '(SELECT 1 FROM public.%I p WHERE p.id = c.%I)',
-          r.child, r.child_col, r.parent, r.child_col);
-        GET DIAGNOSTICS n = ROW_COUNT;
-        total := total + n;
-      EXCEPTION WHEN OTHERS THEN
-        NULL;  -- table/column not present (model name != table); skip
-      END;
-    END LOOP;
-    -- many2many relation tables: relation_table.column2 -> relation.id
-    -- (column2 is the side referencing the often-emptied high-volume parent
-    -- like account_move_line; column1 -> model.id is covered by symmetry on
-    -- the other model's field). Clean both sides to a fixpoint.
-    FOR r IN
-      SELECT f.relation_table AS child, f.column2 AS child_col,
-             replace(f.relation,'.','_') AS parent
-      FROM ir_model_fields f
-      WHERE f.ttype = 'many2many'
-        AND f.relation_table IS NOT NULL AND f.relation_table <> ''
-        AND f.column2 IS NOT NULL AND f.column2 <> ''
-        AND f.relation IS NOT NULL AND f.relation <> ''
-    LOOP
-      BEGIN
-        EXECUTE format(
-          'DELETE FROM public.%I c WHERE c.%I IS NOT NULL AND NOT EXISTS '
-          '(SELECT 1 FROM public.%I p WHERE p.id = c.%I)',
-          r.child, r.child_col, r.parent, r.child_col);
-        GET DIAGNOSTICS n = ROW_COUNT;
-        total := total + n;
-      EXCEPTION WHEN OTHERS THEN
-        NULL;
-      END;
-    END LOOP;
-    FOR r IN
-      SELECT f.relation_table AS child, f.column1 AS child_col,
-             replace(f.model,'.','_') AS parent
-      FROM ir_model_fields f
-      WHERE f.ttype = 'many2many'
-        AND f.relation_table IS NOT NULL AND f.relation_table <> ''
-        AND f.column1 IS NOT NULL AND f.column1 <> ''
-        AND f.model IS NOT NULL AND f.model <> ''
-    LOOP
-      BEGIN
-        EXECUTE format(
-          'DELETE FROM public.%I c WHERE c.%I IS NOT NULL AND NOT EXISTS '
-          '(SELECT 1 FROM public.%I p WHERE p.id = c.%I)',
-          r.child, r.child_col, r.parent, r.child_col);
-        GET DIAGNOSTICS n = ROW_COUNT;
-        total := total + n;
-      EXCEPTION WHEN OTHERS THEN
-        NULL;
-      END;
-    END LOOP;
-    RAISE NOTICE 'orphan sweep pass % touched % rows', passes, total;
-    EXIT WHEN total = 0 OR passes >= 50;
-  END LOOP;
-END $$;
-ORPHAN
-        echo "[startup] upgrading modules: $UP_MODULES (reconcile schema drift)..." \
-          >>/home/dev/workspace/upgrade.log
-        # --logfile=STDOUT so the real Odoo output (and any crash) lands in
-        # upgrade.log for debugging; --stop-after-init exits on completion.
-        if docker exec env-odoo bash -lc \
-          "cd /opt/odoo-src && PYTHONPATH=/opt/odoo-src python3 odoo-bin -c /etc/odoo/odoo.conf -d $DB_NAME -u $UP_MODULES --stop-after-init --logfile=/dev/stdout" \
-          >>/home/dev/workspace/upgrade.log 2>&1; then
-          # upgrade SUCCEEDED: mark reconciled so we skip the (slow) upgrade on future boots
-          docker exec env-db psql -U odoo -d "$DB_NAME" -c \
-            "CREATE TABLE IF NOT EXISTS env_schema_reconciled (id integer primary key, done_at timestamp default now()); \
-             INSERT INTO env_schema_reconciled(id) VALUES (1) ON CONFLICT (id) DO NOTHING;" \
-            >/dev/null 2>&1 || true
-          echo "[startup] upgrade succeeded, schema reconciled" >>/home/dev/workspace/upgrade.log
-        else
-          # upgrade FAILED: do NOT set the marker -- the next boot will retry.
-          # Common cause: a masked column collides on a code-defined unique
-          # index Odoo creates at _auto_init (e.g. act_window_view_unique_mode
-          # on ir_act_window_view.view_mode). Fix the masker + re-mask, don't
-          # paper over it. Keep env-odoo up so logs are reachable.
-          echo "[startup] UPGRADE FAILED -- schema NOT reconciled; will retry next boot. See upgrade.log." >>/home/dev/workspace/upgrade.log
-        fi
-        chown dev:dev /home/dev/workspace/upgrade.log 2>/dev/null || true
-        docker restart env-odoo >/dev/null 2>&1 || true
       fi
 
     fi

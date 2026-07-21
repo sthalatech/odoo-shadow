@@ -226,8 +226,7 @@ def create(source_run_id: Optional[str], issue: Optional[str],
            dump_s3_uri: Optional[str], repo_url: Optional[str] = None,
            repo_branch: Optional[str] = None,
            profile_id: Optional[str] = None,
-           name: Optional[str] = None,
-           upgrade_modules: Optional[str] = None) -> str:
+           name: Optional[str] = None) -> str:
     """Create a Coder workspace for the env. Runs `coder create` with the
     template parameters; the Coder server provisions the EC2 instance and the
     agent's startup_script boots Odoo.
@@ -235,10 +234,11 @@ def create(source_run_id: Optional[str], issue: Optional[str],
     The env id (random hex) is the internal store key. The Coder *workspace
     name* defaults to that id, but an optional human-friendly ``name`` (e.g.
     ``iss-42-fix-login-500``) overrides it so the env is labelled on the Coder
-    dashboard with the issue # + a short slug. ``upgrade_modules`` is a
-    comma-separated list of discovered modules to upgrade at boot (empty/None
-    => ``-u all``), keeping the post-launch schema-reconcile generic across
-    repos instead of hard-scoped to one addons repo."""
+    dashboard with the issue # + a short slug.
+
+    The masked DB is already schema-matched to the provenance-baked Odoo image
+    (same git refs at build + mask time), so the env boots Odoo directly against
+    it with no ``-u all`` module upgrade."""
     if not config.environments_configured():
         raise RuntimeError(
             "developer environments are not configured (set CODER_URL and "
@@ -295,9 +295,6 @@ def create(source_run_id: Optional[str], issue: Optional[str],
          config.get("ODOO_MASTER_PASSWORD", "change_me_master") or "change_me_master"),
         ("odoo_conf_extra_b64", conf_extra_b64),
         ("admin_password", admin_password),
-        # Comma-separated discovered modules to upgrade at boot; empty => -u all
-        # (generic schema-reconcile, not scoped to any one repo).
-        ("upgrade_modules", (upgrade_modules or "").strip()),
         # Per-preset agent config (profile.agent_name / agent_system_prompt).
         # Empty agent_name => the template default (opencode); empty prompt =>
         # the built-in agent-system-prompt.md shipped on the AMI.
@@ -317,9 +314,9 @@ def create(source_run_id: Optional[str], issue: Optional[str],
     # Pass rich parameters via a YAML map file (CODER_RICH_PARAMETER_FILE)
     # rather than `--parameter name=value` flags: Coder's --parameter is a
     # string-array flag that splits each value on commas, which breaks
-    # comma-separated values (e.g. upgrade_modules=a,b,c -> "got b"). The YAML
-    # map file keeps values intact and is not split, so the discovered-module
-    # CSV reaches the agent startup script unmodified.
+    # comma-separated values (e.g. a,b,c -> "got b"). The YAML map file keeps
+    # values intact and is not split, so multi-value params reach the agent
+    # startup script unmodified.
     import tempfile, os as _os
     params_doc = {k: str(v) for k, v in params}
     fd, param_path = tempfile.mkstemp(prefix="coder_params_", suffix=".yaml")
