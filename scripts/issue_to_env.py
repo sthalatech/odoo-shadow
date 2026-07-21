@@ -26,7 +26,6 @@ Inputs come from env vars set by the workflow:
   ODOO_SYNTH_AGENT (default opencode; profile.agent_name wins when set),
   ODOO_SYNTH_MAX_ITER (kept for compat; the agent self-drives via superpowers),
   ODOO_SYNTH_AGENT_TIMEOUT (wall-clock cost guard, default 3600s),
-  ODOO_SYNTH_UPGRADE_MODULES (optional comma-list, else profile-discovered),
   ODOO_SYNTH_BRANCH_HINT (optional repo branch override; else profile ref).
 
 Exit codes: 0 = env created + agent launched; 1 = no matching profile; 2 = env
@@ -290,7 +289,6 @@ def main() -> int:
     issue_repo = os.environ.get("ISSUE_REPO_URL", "").strip()
     agent = os.environ.get("ODOO_SYNTH_AGENT", "opencode").strip() or "opencode"
     max_iter = int(os.environ.get("ODOO_SYNTH_MAX_ITER", "15") or "15")
-    upgrade_modules = os.environ.get("ODOO_SYNTH_UPGRADE_MODULES", "").strip()
     branch_hint = os.environ.get("ODOO_SYNTH_BRANCH_HINT", "").strip()
 
     if not issue_repo:
@@ -323,14 +321,6 @@ def main() -> int:
     label = _workspace_label(issue_number, issue_title)
     issue_ref = f"#{issue_number}" if issue_number else issue_url
 
-    # The post-launch module upgrade is generic (any repo). Scope it to the
-    # profile's discovered installed modules when not overridden; empty =>
-    # `-u all` (the template default).
-    if not upgrade_modules:
-        mods = profile.get("installed_modules") or []
-        if mods:
-            upgrade_modules = ",".join(mods)
-
     # The PR base branch the agent must target with `gh pr create --base`.
     # Per-profile (profile.pr_base) so each repo lands on its own integration
     # branch; default uat (the prs-backend integration branch). The issue
@@ -338,13 +328,12 @@ def main() -> int:
     pr_base = (profile.get("pr_base") or "").strip() or "uat"
 
     _log(f"creating env: name={label} issue={issue_ref} branch={repo_branch} "
-         f"pr_base={pr_base} "
-         f"upgrade_modules={'all' if not upgrade_modules else f'{len(upgrade_modules.split(chr(44)))} modules'}")
+         f"pr_base={pr_base}")
     try:
         env_id = environments.create(
             source_run_id=run_id, issue=issue_ref, dump_s3_uri=None,
             repo_url=profile.get("addons_git_url"), repo_branch=repo_branch,
-            profile_id=pid, name=label, upgrade_modules=upgrade_modules)
+            profile_id=pid, name=label)
     except Exception as exc:  # noqa: BLE001
         _log(f"ERROR: env create failed: {exc}")
         return 2
