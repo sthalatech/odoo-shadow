@@ -100,13 +100,20 @@ ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo mkdir -p \"$REMOTE_DIR\" && sudo chown 
 # since the last deploy). Exclude them defensively even though controlpanel/***
 # is included.
 if command -v rsync >/dev/null 2>&1; then
+  # rsync filter rules are first-match-wins, so the runtime-store excludes MUST
+  # come BEFORE the broad `controlpanel/***` include -- otherwise envs.yaml etc.
+  # match the include first and get shipped, clobbering the server's live per-issue
+  # env linkage (this exact bug silently wiped the 493/495 env records on a
+  # previous deploy). Excludes first; then include the rest of the code tree.
   rsync -az --delete \
-    --include='scripts/' --include='scripts/***' \
-    --include='controlpanel/' --include='controlpanel/***' \
     --exclude='controlpanel/backend/envs.yaml' \
     --exclude='controlpanel/backend/profiles/' \
     --exclude='controlpanel/backend/runs.yaml' \
     --exclude='controlpanel/backend/__pycache__/' \
+    --exclude='controlpanel/.venv/' \
+    --exclude='__pycache__' \
+    --include='scripts/' --include='scripts/***' \
+    --include='controlpanel/' --include='controlpanel/***' \
     --include='deploy/' --include='deploy/_yaml_to_env.py' --include='deploy/lib.sh' \
     --exclude='deploy/state.env' \
     --include='coder/templates/odoo-synth-env/agent-system-prompt.md' \
