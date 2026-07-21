@@ -216,6 +216,13 @@ _SKIP_TABLES = {
     "ir_act_report", "ir_act_url", "ir_act_client", "ir_cron", "ir_rule",
     "ir_config_parameter", "ir_model_access", "res_groups",
     "ir_filters", "ir_logging",
+    # ir_property: generic property store. value_reference holds "<model>,<id>"
+    # references (e.g. "product.pricelist,5") and value_text holds property
+    # values. Masking value_reference to '********' breaks the model,id format
+    # Odoo parses with int() (pricelist compute -> invalid input syntax for
+    # type integer). Not PII -- it's structural config; the referenced ids stay
+    # valid against the masked tables. Never auto-mask.
+    "ir_property",
     # accounting report CONFIGURATION (Odoo core account_reports). These are
     # structural report-template rows (filter_* are selection/boolean-shaped
     # config, expressions are code-like strings), not customer PII. Masking

@@ -527,6 +527,17 @@ def cmd_run_mask(args) -> int:
         # override the profile's stored SSH tunnel settings. A profile may be
         # created without a bastion and later run through one (or vice versa).
         overrides: dict = {"produce_dump": True}
+        # Mask knobs: the profile path rebuilds params from run_params() (which
+        # starts from the profile's saved mask_inputs), so per-run CLI flags
+        # must be forwarded as overrides or they are silently dropped. Only
+        # non-None values override -- argparse leaves unset flags at None, and
+        # run_params() filters None overrides, so this is a pure override.
+        for _k in ("mask_profile", "admin_password", "gm_jobs", "subset_days",
+                   "exclude_table_data", "neutralize_mail", "neutralize_fetchmail",
+                   "neutralize_payment", "neutralize_smtp_param", "reset_admin_login"):
+            _v = getattr(args, _k, None)
+            if _v is not None:
+                overrides[_k] = _v
         if args.ssh_enabled is not None:
             overrides["ssh_enabled"] = bool(args.ssh_enabled)
         if args.ssh_bastion is not None:
