@@ -184,7 +184,7 @@ def webhook():
     except Exception:  # noqa: BLE001
         abort(400)
     action = data.get("action")
-    if action not in ("opened", "closed"):
+    if action not in ("opened", "reopened", "closed"):
         return (f"ignored: action={action}\n", 200)
     issue = data.get("issue") or {}
     repo = data.get("repository") or {}
