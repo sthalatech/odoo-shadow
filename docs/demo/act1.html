@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>odoo-synth — Act 1: The Pipeline</title>
+<style>
+  :root{
+    --bg:#0b0f17; --panel:#121826; --panel2:#1a2236; --ink:#e6ebf5; --mut:#8b97b4;
+    --acc:#5b8cff; --acc2:#22c1a3; --warn:#f0a93b; --line:#26304a;
+    --term:#0a0e16; --green:#3ee08a; --amber:#e0b341; --blue:#6aa8ff; --red:#ff6b6b;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial,sans-serif;overflow:hidden}
+  .stage{display:flex;flex-direction:column;height:100vh;padding:18px 22px 16px}
+  header{display:flex;align-items:baseline;gap:14px;margin-bottom:10px;flex-wrap:wrap}
+  h1{font-size:22px;margin:0;letter-spacing:-.4px}
+  .sub{color:var(--mut);font-size:13.5px}
+  .pill{font-size:11px;padding:3px 10px;border-radius:6px;background:var(--acc);color:#0b0f17;font-weight:800;letter-spacing:.5px}
+  .controls{margin-left:auto;display:flex;gap:8px;align-items:center}
+  .btn{background:var(--panel2);border:1px solid var(--line);color:var(--ink);font-size:13px;padding:7px 14px;border-radius:8px;cursor:pointer;font-weight:600}
+  .btn:hover{border-color:var(--acc)}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .btn.go{background:var(--acc);color:#0b0f17;border-color:var(--acc)}
+  .progress{display:flex;gap:6px;align-items:center}
+  .progress .bar{width:160px;height:6px;background:var(--panel);border-radius:4px;overflow:hidden;border:1px solid var(--line)}
+  .progress .fill{height:100%;width:0;background:linear-gradient(90deg,var(--acc),var(--acc2));transition:width .3s}
+  .progress span{font-size:11.5px;color:var(--mut);font-variant-numeric:tabular-nums}
+
+  .main{flex:1;display:grid;grid-template-columns:1.05fr 1fr;gap:14px;min-height:0}
+  /* diagram pane */
+  .diagram{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 14px;overflow:auto}
+  .flow{display:grid;grid-template-columns:repeat(5,1fr);gap:0;align-items:stretch;height:100%}
+  .step{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px 11px;position:relative;display:flex;flex-direction:column;transition:all .35s;opacity:.42}
+  .step.active{opacity:1;border-color:var(--acc);box-shadow:0 0 0 1px var(--acc),0 8px 30px -8px rgba(91,140,255,.4);transform:translateY(-2px)}
+  .step.done{opacity:.7;border-color:var(--acc2)}
+  .step:not(:last-child){margin-right:10px}
+  .arrow{position:absolute;right:-11px;top:50%;transform:translateY(-50%);width:10px;height:2px;background:var(--line);z-index:2}
+  .arrow::after{content:"";position:absolute;right:-2px;top:-4px;border:5px solid transparent;border-left-color:var(--line)}
+  .step.done+.arrow,.step.active+.arrow{background:var(--acc2)}
+  .step.done+.arrow::after,.step.active+.arrow::after{border-left-color:var(--acc2)}
+  .step .n{width:22px;height:22px;border-radius:6px;background:var(--panel);border:1px solid var(--line);color:var(--mut);font-size:12px;font-weight:800;text-align:center;line-height:20px;margin-bottom:7px}
+  .step.active .n{background:var(--acc);color:#0b0f17;border-color:var(--acc)}
+  .step.done .n{background:var(--acc2);color:#0b0f17;border-color:var(--acc2)}
+  .step h3{margin:0 0 6px;font-size:14px}
+  .step .cmd{font-family:ui-monospace,Menlo,monospace;font-size:10.6px;color:var(--acc2);background:var(--term);border:1px solid var(--line);padding:4px 6px;border-radius:6px;margin-bottom:7px;word-break:break-all}
+  .step ul{margin:0;padding-left:14px;color:var(--mut);font-size:11.4px}
+  .step ul li{margin:2px 0}
+  .step .out{margin-top:auto;padding-top:7px;font-size:11px;color:var(--ink)}
+  .step .out b{color:var(--acc)}
+  .step .check{position:absolute;top:9px;right:11px;color:var(--acc2);font-size:15px;opacity:0;transition:opacity .3s}
+  .step.done .check{opacity:1}
+
+  .tag-row{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}
+  .tag{font-size:11px;padding:4px 9px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);color:var(--mut)}
+  .tag b{color:var(--ink)}
+  .tag.live{border-color:var(--acc2);color:var(--acc2)}
+  .tag.sim{border-color:var(--warn);color:var(--warn)}
+
+  /* terminal pane */
+  .term-wrap{background:var(--panel);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;overflow:hidden}
+  .term-head{display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--panel2);border-bottom:1px solid var(--line)}
+  .dot{width:11px;height:11px;border-radius:50%}
+  .dot.r{background:#ff5f57}.dot.y{background:#febc2e}.dot.g{background:#28c840}
+  .term-title{margin-left:8px;font-size:12px;color:var(--mut);font-family:ui-monospace,Menlo,monospace}
+  .term-body{flex:1;overflow:auto;padding:12px 14px;font-family:ui-monospace,Menlo,monospace;font-size:12.3px;line-height:1.55;background:var(--term)}
+  .line{white-space:pre-wrap;word-break:break-all}
+  .prompt{color:var(--acc2)}
+  .cmd{color:var(--ink)}
+  .ok{color:var(--green)}
+  .warn{color:var(--amber)}
+  .info{color:var(--blue)}
+  .mut{color:var(--mut)}
+  .err{color:var(--red)}
+  .cursor{display:inline-block;width:8px;height:14px;background:var(--green);vertical-align:-2px;animation:blink 1s steps(2) infinite}
+  @keyframes blink{50%{opacity:0}}
+  .cur{color:var(--green)}
+</style>
+</head>
+<body>
+<div class="stage">
+  <header>
+    <h1>odoo-synth</h1>
+    <span class="pill">ACT 1 · THE PIPELINE</span>
+    <span class="sub">Prod DB → masked dump → provenance-baked image → ready</span>
+    <div class="controls">
+      <div class="progress"><div class="bar"><div class="fill" id="fill"></div></div><span id="pct">0%</span></div>
+      <button class="btn" id="resetBtn">↺ Reset</button>
+      <button class="btn go" id="playBtn">▶ Play</button>
+    </div>
+  </header>
+
+  <div class="main">
+    <div class="diagram">
+      <div class="flow" id="flow">
+        <div class="step" data-idx="0">
+          <div class="check">✓</div>
+          <div class="n">1</div>
+          <h3>Profile</h3>
+          <div class="cmd">odoo-synth profile create --source-dsn …</div>
+          <ul><li>Bind a source Odoo DB (DSN)</li><li>Pin provenance: core git ref, addons repo, enterprise flag</li></ul>
+          <div class="arrow"></div>
+          <div class="out">→ <b>profile YAML</b> (S3-mirrored)</div>
+        </div>
+        <div class="step" data-idx="1">
+          <div class="check">✓</div>
+          <div class="n">2</div>
+          <h3>Discover</h3>
+          <div class="cmd">odoo-synth profile discover &lt;id&gt;</div>
+          <ul><li>Inspect live DB + addons</li><li>Installed modules, python/apt deps</li></ul>
+          <div class="arrow"></div>
+          <div class="out">→ <b>discovery.json</b> folded into profile</div>
+        </div>
+        <div class="step" data-idx="2">
+          <div class="check">✓</div>
+          <div class="n">3</div>
+          <h3>Build</h3>
+          <div class="cmd">odoo-synth profile build &lt;id&gt;</div>
+          <ul><li>Bake image: core + addons + enterprise @ pinned ref</li><li>Provenance-tagged</li></ul>
+          <div class="arrow"></div>
+          <div class="out">→ <b>ECR image</b></div>
+        </div>
+        <div class="step" data-idx="3">
+          <div class="check">✓</div>
+          <div class="n">4</div>
+          <h3>Mask</h3>
+          <div class="cmd">odoo-synth run mask --profile &lt;id&gt; --subset-days 90</div>
+          <ul><li>Greenmask over source DB</li><li>Field→strategy rulebook</li><li>Neutralize mail/payment</li><li>Prune to last 90 days</li></ul>
+          <div class="arrow"></div>
+          <div class="out">→ <b>masked pg_dump in S3</b></div>
+        </div>
+        <div class="step" data-idx="4">
+          <div class="check">✓</div>
+          <div class="n">5</div>
+          <h3>Ready</h3>
+          <div class="cmd">odoo-synth env create --profile-id &lt;id&gt; --issue &lt;ref&gt;</div>
+          <ul><li>Coder workspace from ECR image + dump</li><li>Addons repo live-mounted</li><li>Odoo ready @ :18069</li></ul>
+          <div class="out">→ <b>dev workspace</b> (per issue) · <span class="tag live">LIVE in Act 2</span></div>
+        </div>
+      </div>
+      <div class="tag-row">
+        <span class="tag sim"><b>Act 1</b> simulated</span>
+        <span class="tag live"><b>Act 2</b> live · 3 issues · 3 agents in parallel</span>
+        <span class="tag">Compute: Coder workspaces · no standing cluster</span>
+        <span class="tag">State: S3 (dumps · runs · logs · profiles) · ECR · Secrets Mgr</span>
+      </div>
+    </div>
+
+    <div class="term-wrap">
+      <div class="term-head">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="term-title">operator@laptop — odoo-synth</span>
+      </div>
+      <div class="term-body" id="term"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SCRIPT = [
+  // 0 — Profile
+  {s:"profile", lines:[
+    ["prompt","$ "],["cmd","odoo-synth profile create --label darkstore-prod --source-dsn 'postgresql://ro@prod-db.internal:5432/odoo' --odoo-git-ref 4a2f1c8 --addons-git-ref main --needs-enterprise"],
+    ["mut","# binds source DB + pins provenance; profile yaml mirrored to S3"],
+    ["info","profile prof_749c8a90 created"],
+    ["ok","✓ profile yaml → s3://odoo-synth-dumps/profiles/prof_749c8a90.yaml"],
+  ]},
+  // 1 — Discover
+  {s:"discover", lines:[
+    ["prompt","$ "],["cmd","odoo-synth profile discover prof_749c8a90"],
+    ["mut","# launches ephemeral Coder runner workspace; inspects live DB + addons"],
+    ["info","[discover] connecting to source odoo@prod-db.internal:5432/odoo ..."],
+    ["info","[discover] reading ir_module_module where state='installed' ..."],
+    ["info","[discover] 318 installed modules"],
+    ["info","[discover] scanning addons repo for python deps ..."],
+    ["info","[discover] apt deps: libxml2-dev, libxslt-dev, ..."],
+    ["ok","✓ discovery.json uploaded; profile advanced → discovered"],
+  ]},
+  // 2 — Build
+  {s:"build", lines:[
+    ["prompt","$ "],["cmd","odoo-synth profile build prof_749c8a90"],
+    ["mut","# ephemeral builder workspace: docker build → push to ECR"],
+    ["info","[build] cloning odoo/odoo @ 4a2f1c8 ..."],
+    ["info","[build] cloning addons repo @ main ..."],
+    ["info","[build] unpacking enterprise.zip → enterprise/"],
+    ["info","[build] docker build -t odoo-synth:prof_749c8a90-4a2f1c8 ..."],
+    ["info","[build] # provenance: core=4a2f1c8 addons=main enterprise=yes"],
+    ["info","[build] pushing to ECR ..."],
+    ["ok","✓ image pushed: 111111111111.dkr.ecr.us-east-1.amazonaws.com/odoo-synth:prof_749c8a90-4a2f1c8"],
+  ]},
+  // 3 — Mask
+  {s:"mask", lines:[
+    ["prompt","$ "],["cmd","odoo-synth run mask --profile prof_749c8a90 --subset-days 90"],
+    ["mut","# ephemeral runner workspace: greenmask over source DB"],
+    ["info","[masker] preflight: checking ro_user@prod-db.internal:5432/odoo ..."],
+    ["info","[masker] preflight: reachable."],
+    ["info","[masker] using masking profile: odoo-darkstore.yaml; jobs=8"],
+    ["info","[masker] dumping + masking source odoo@prod-db.internal ..."],
+    ["info","[masker] dump done."],
+    ["info","[masker] restoring masked dump into masked_db ..."],
+    ["info","[masker] restore verified (res_partner present)."],
+    ["info","[masker] dump slimming: pruning transactional rows older than 90 days ..."],
+    ["info","[masker]   prune root: sale_order on date_order"],
+    ["info","[masker]   prune root: account_move on date"],
+    ["info","[masker]   prune root: stock_picking on scheduled_date"],
+    ["info","[masker]   prune root: mail_message on date"],
+    ["info","[masker] dump slimming: prune + orphan sweep complete; reclaiming space ..."],
+    ["info","[masker] neutralizing (mail=1 fetchmail=1 payment=1 smtp_param=1 crons=1) ..."],
+    ["info","[masker] setting admin password ..."],
+    ["info","[masker] producing downloadable pg_dump of masked DB ..."],
+    ["info","[masker] uploading masked dump (418 MiB) to S3 ..."],
+    ["ok","[masker] DONE: masked replica ready"],
+    ["ok","✓ masked dump → s3://odoo-synth-dumps/runs/run_a1b2c3/masked.dump"],
+  ]},
+  // 4 — Ready (bridge to Act 2)
+  {s:"ready", lines:[
+    ["prompt","$ "],["cmd","odoo-synth env create --profile-id prof_749c8a90 --dump-s3-uri s3://odoo-synth-dumps/runs/run_a1b2c3/masked.dump --issue org/repo#42"],
+    ["mut","# one command — a workspace boots with image + dump + addons live-mounted"],
+    ["info","[env] launching Coder workspace from odoo-synth-env preset ..."],
+    ["info","[env] pulling ECR image 111111111111.dkr.ecr...:prof_749c8a90-4a2f1c8 ..."],
+    ["info","[env] restoring masked dump into local Postgres 16 ..."],
+    ["info","[env] mounting addons repo at /mnt/live (read-write) ..."],
+    ["info","[env] starting Odoo on 127.0.0.1:18069 ..."],
+    ["ok","✓ workspace ready · Odoo answers HTTP · code-server + agent baked in"],
+    ["",""],
+    ["warn","══ Act 1 complete: a provenance-baked image + a masked dump, ready to stamp ══"],
+    ["warn","   Act 2 → 3 issues · 3 workspaces · 3 agents · in parallel · LIVE"],
+  ]},
+];
+
+const term = document.getElementById('term');
+const fill = document.getElementById('fill');
+const pct = document.getElementById('pct');
+const playBtn = document.getElementById('playBtn');
+const resetBtn = document.getElementById('resetBtn');
+const steps = [...document.querySelectorAll('.step')];
+
+let timer=null, stage=0, lineIdx=0, charIdx=0, typing=false, done=false;
+
+function setStep(i){
+  steps.forEach((el,idx)=>{
+    el.classList.remove('active','done');
+    if(idx<i) el.classList.add('done');
+    else if(idx===i) el.classList.add('active');
+  });
+  const pctVal = Math.round(((i+(lineIdx>0?0.5:0))/SCRIPT.length)*100);
+  fill.style.width = pctVal+'%'; pct.textContent = pctVal+'%';
+}
+
+function printFull(cls, txt){
+  if(!txt && cls!==""){return}
+  const d=document.createElement('div'); d.className='line';
+  if(cls==="prompt"){d.innerHTML='<span class="prompt">'+esc(txt)+'</span>';}
+  else if(cls==="cmd"){d.innerHTML='<span class="prompt">$ </span><span class="cmd">'+esc(txt)+'</span>';}
+  else if(cls===""){d.innerHTML='<span> </span>';}
+  else {d.innerHTML='<span class="'+cls+'">'+esc(txt)+'</span>';}
+  term.appendChild(d); term.scrollTop=term.scrollHeight;
+}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+let curEl=null, curTxt="", curCls="";
+function tick(){
+  if(done) return;
+  if(stage>=SCRIPT.length){finish();return;}
+  const stageData=SCRIPT[stage];
+  if(lineIdx>=stageData.lines.length){stage++;lineIdx=0;setStep(stage);tick();return;}
+  const [cls,txt]=stageData.lines[lineIdx];
+  if(!typing){
+    if(cls==="prompt"){ // prompt+cmd: type the cmd
+      typing=true; charIdx=0; curCls="cmd"; curTxt=txt; curEl=document.createElement('div');curEl.className='line';term.appendChild(curEl);
+    } else if(cls===""){
+      printFull("", ""); lineIdx++; tick(); return;
+    } else {
+      printFull(cls,txt); lineIdx++; tick(); return;
+    }
+  }
+  // typing the cmd
+  if(charIdx<=curTxt.length){
+    curEl.innerHTML='<span class="prompt">$ </span><span class="cmd">'+esc(curTxt.slice(0,charIdx))+'</span><span class="cursor"></span>';
+    charIdx+=Math.max(1,Math.round(curTxt.length/60));
+    term.scrollTop=term.scrollHeight;
+  } else {
+    curEl.innerHTML='<span class="prompt">$ </span><span class="cmd">'+esc(curTxt)+'</span>';
+    typing=false; lineIdx++; 
+  }
+  timer=setTimeout(tick, typing?14:300);
+}
+
+function start(){
+  if(done){reset();}
+  playBtn.disabled=true; playBtn.textContent='▶ Playing…';
+  setStep(0); tick();
+}
+function finish(){
+  done=true; playBtn.disabled=false; playBtn.textContent='↺ Replay';
+  fill.style.width='100%'; pct.textContent='100%';
+  steps.forEach(el=>{el.classList.remove('active');el.classList.add('done');});
+  const d=document.createElement('div');d.className='line';d.style.marginTop='8px';
+  d.innerHTML='<span class="ok">▍ ready for Act 2 — hand off to the live role-play</span>';
+  term.appendChild(d); term.scrollTop=term.scrollHeight;
+}
+function reset(){
+  clearTimeout(timer); term.innerHTML=''; stage=0; lineIdx=0; charIdx=0; typing=false; done=false;
+  steps.forEach(el=>el.classList.remove('active','done'));
+  fill.style.width='0%'; pct.textContent='0%';
+  playBtn.disabled=false; playBtn.textContent='▶ Play';
+}
+playBtn.addEventListener('click',start);
+resetBtn.addEventListener('click',reset);
+reset();
+</script>
+</body>
+</html>
