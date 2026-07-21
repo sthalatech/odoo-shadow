@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>odoo-synth — Act 1: The Pipeline</title>
+<title>odoo-synth — Act 1: The Pipeline (real run)</title>
 <style>
   :root{
     --bg:#0b0f17; --panel:#121826; --panel2:#1a2236; --ink:#e6ebf5; --mut:#8b97b4;
@@ -17,6 +17,7 @@
   h1{font-size:22px;margin:0;letter-spacing:-.4px}
   .sub{color:var(--mut);font-size:13.5px}
   .pill{font-size:11px;padding:3px 10px;border-radius:6px;background:var(--acc);color:#0b0f17;font-weight:800;letter-spacing:.5px}
+  .real{font-size:11px;padding:3px 10px;border-radius:6px;background:var(--acc2);color:#0b0f17;font-weight:800}
   .controls{margin-left:auto;display:flex;gap:8px;align-items:center}
   .btn{background:var(--panel2);border:1px solid var(--line);color:var(--ink);font-size:13px;padding:7px 14px;border-radius:8px;cursor:pointer;font-weight:600}
   .btn:hover{border-color:var(--acc)}
@@ -28,7 +29,6 @@
   .progress span{font-size:11.5px;color:var(--mut);font-variant-numeric:tabular-nums}
 
   .main{flex:1;display:grid;grid-template-columns:1.05fr 1fr;gap:14px;min-height:0}
-  /* diagram pane */
   .diagram{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 14px;overflow:auto}
   .flow{display:grid;grid-template-columns:repeat(5,1fr);gap:0;align-items:stretch;height:100%}
   .step{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px 11px;position:relative;display:flex;flex-direction:column;transition:all .35s;opacity:.42}
@@ -50,14 +50,11 @@
   .step .out b{color:var(--acc)}
   .step .check{position:absolute;top:9px;right:11px;color:var(--acc2);font-size:15px;opacity:0;transition:opacity .3s}
   .step.done .check{opacity:1}
-
   .tag-row{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}
   .tag{font-size:11px;padding:4px 9px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);color:var(--mut)}
   .tag b{color:var(--ink)}
   .tag.live{border-color:var(--acc2);color:var(--acc2)}
-  .tag.sim{border-color:var(--warn);color:var(--warn)}
 
-  /* terminal pane */
   .term-wrap{background:var(--panel);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;overflow:hidden}
   .term-head{display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--panel2);border-bottom:1px solid var(--line)}
   .dot{width:11px;height:11px;border-radius:50%}
@@ -71,10 +68,11 @@
   .warn{color:var(--amber)}
   .info{color:var(--blue)}
   .mut{color:var(--mut)}
-  .err{color:var(--red)}
+  .panel{color:var(--blue)}
+  .runner{color:var(--amber)}
+  .container{color:var(--green)}
   .cursor{display:inline-block;width:8px;height:14px;background:var(--green);vertical-align:-2px;animation:blink 1s steps(2) infinite}
   @keyframes blink{50%{opacity:0}}
-  .cur{color:var(--green)}
 </style>
 </head>
 <body>
@@ -82,6 +80,7 @@
   <header>
     <h1>odoo-synth</h1>
     <span class="pill">ACT 1 · THE PIPELINE</span>
+    <span class="real">▶ REAL RUN LOGS</span>
     <span class="sub">Prod DB → masked dump → provenance-baked image → ready</span>
     <div class="controls">
       <div class="progress"><div class="bar"><div class="fill" id="fill"></div></div><span id="pct">0%</span></div>
@@ -99,62 +98,52 @@
     <div class="diagram">
       <div class="flow" id="flow">
         <div class="step" data-idx="0">
-          <div class="check">✓</div>
-          <div class="n">1</div>
-          <h3>Profile</h3>
+          <div class="check">✓</div><div class="n">1</div><h3>Profile</h3>
           <div class="cmd">odoo-synth profile create --source-dsn …</div>
           <ul><li>Bind a source Odoo DB (DSN)</li><li>Pin provenance: core git ref, addons repo, enterprise flag</li></ul>
           <div class="arrow"></div>
           <div class="out">→ <b>profile YAML</b> (S3-mirrored)</div>
         </div>
         <div class="step" data-idx="1">
-          <div class="check">✓</div>
-          <div class="n">2</div>
-          <h3>Discover</h3>
+          <div class="check">✓</div><div class="n">2</div><h3>Discover</h3>
           <div class="cmd">odoo-synth profile discover &lt;id&gt;</div>
           <ul><li>Inspect live DB + addons</li><li>Installed modules, python/apt deps</li></ul>
           <div class="arrow"></div>
           <div class="out">→ <b>discovery.json</b> folded into profile</div>
         </div>
         <div class="step" data-idx="2">
-          <div class="check">✓</div>
-          <div class="n">3</div>
-          <h3>Build</h3>
+          <div class="check">✓</div><div class="n">3</div><h3>Build</h3>
           <div class="cmd">odoo-synth profile build &lt;id&gt;</div>
           <ul><li>Bake image: core + addons + enterprise @ pinned ref</li><li>Provenance-tagged</li></ul>
           <div class="arrow"></div>
           <div class="out">→ <b>ECR image</b></div>
         </div>
         <div class="step" data-idx="3">
-          <div class="check">✓</div>
-          <div class="n">4</div>
-          <h3>Mask</h3>
-          <div class="cmd">odoo-synth run mask --profile &lt;id&gt; --subset-days 90</div>
-          <ul><li>Greenmask over source DB</li><li>Field→strategy rulebook</li><li>Neutralize mail/payment</li><li>Prune to last 90 days</li></ul>
+          <div class="check">✓</div><div class="n">4</div><h3>Mask</h3>
+          <div class="cmd">odoo-synth run mask --profile &lt;id&gt;</div>
+          <ul><li>Greenmask over source DB</li><li>Field→strategy rulebook</li><li>Neutralize mail/payment</li></ul>
           <div class="arrow"></div>
           <div class="out">→ <b>masked pg_dump in S3</b></div>
         </div>
         <div class="step" data-idx="4">
-          <div class="check">✓</div>
-          <div class="n">5</div>
-          <h3>Ready</h3>
+          <div class="check">✓</div><div class="n">5</div><h3>Ready</h3>
           <div class="cmd">odoo-synth env create --profile-id &lt;id&gt; --issue &lt;ref&gt;</div>
           <ul><li>Coder workspace from ECR image + dump</li><li>Addons repo live-mounted</li><li>Odoo ready @ :18069</li></ul>
           <div class="out">→ <b>dev workspace</b> (per issue) · <span class="tag live">LIVE in Act 2</span></div>
         </div>
       </div>
       <div class="tag-row">
-        <span class="tag sim"><b>Act 1</b> simulated</span>
+        <span class="tag"><b>Act 1</b> real run logs · replayed</span>
         <span class="tag live"><b>Act 2</b> live · 3 issues · 3 agents in parallel</span>
-        <span class="tag">Compute: Coder workspaces · no standing cluster</span>
-        <span class="tag">State: S3 (dumps · runs · logs · profiles) · ECR · Secrets Mgr</span>
+        <span class="tag">Profile: IRS Donation (prof_749c8a90) · Odoo 17.0</span>
+        <span class="tag">Source: isha_donation@52.66.186.162 via bastion</span>
       </div>
     </div>
 
     <div class="term-wrap">
       <div class="term-head">
         <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
-        <span class="term-title">operator@laptop — odoo-synth</span>
+        <span class="term-title">operator@laptop — odoo-synth · real run</span>
       </div>
       <div class="term-body" id="term"></div>
     </div>
@@ -162,160 +151,97 @@
 </div>
 
 <script>
-const SCRIPT = [
-  // 0 — Profile
-  {s:"profile", lines:[
-    ["prompt","$ "],["cmd","odoo-synth profile create --label darkstore-prod --source-dsn 'postgresql://ro@prod-db.internal:5432/odoo' --odoo-git-ref 4a2f1c8 --addons-git-ref main --needs-enterprise"],
-    ["mut","# binds source DB + pins provenance; profile yaml mirrored to S3"],
-    ["info","profile prof_749c8a90 created"],
-    ["ok","✓ profile yaml → s3://odoo-synth-dumps/profiles/prof_749c8a90.yaml"],
-  ]},
-  // 1 — Discover
-  {s:"discover", lines:[
-    ["prompt","$ "],["cmd","odoo-synth profile discover prof_749c8a90"],
-    ["mut","# launches ephemeral Coder runner workspace; inspects live DB + addons"],
-    ["info","[discover] connecting to source odoo@prod-db.internal:5432/odoo ..."],
-    ["info","[discover] reading ir_module_module where state='installed' ..."],
-    ["info","[discover] 318 installed modules"],
-    ["info","[discover] scanning addons repo for python deps ..."],
-    ["info","[discover] apt deps: libxml2-dev, libxslt-dev, ..."],
-    ["ok","✓ discovery.json uploaded; profile advanced → discovered"],
-  ]},
-  // 2 — Build
-  {s:"build", lines:[
-    ["prompt","$ "],["cmd","odoo-synth profile build prof_749c8a90"],
-    ["mut","# ephemeral builder workspace: docker build → push to ECR"],
-    ["info","[build] cloning odoo/odoo @ 4a2f1c8 ..."],
-    ["info","[build] cloning addons repo @ main ..."],
-    ["info","[build] unpacking enterprise.zip → enterprise/"],
-    ["info","[build] docker build -t odoo-synth:prof_749c8a90-4a2f1c8 ..."],
-    ["info","[build] # provenance: core=4a2f1c8 addons=main enterprise=yes"],
-    ["info","[build] pushing to ECR ..."],
-    ["ok","✓ image pushed: 111111111111.dkr.ecr.us-east-1.amazonaws.com/odoo-synth:prof_749c8a90-4a2f1c8"],
-  ]},
-  // 3 — Mask
-  {s:"mask", lines:[
-    ["prompt","$ "],["cmd","odoo-synth run mask --profile prof_749c8a90 --subset-days 90"],
-    ["mut","# ephemeral runner workspace: greenmask over source DB"],
-    ["info","[masker] preflight: checking ro_user@prod-db.internal:5432/odoo ..."],
-    ["info","[masker] preflight: reachable."],
-    ["info","[masker] using masking profile: odoo-darkstore.yaml; jobs=8"],
-    ["info","[masker] dumping + masking source odoo@prod-db.internal ..."],
-    ["info","[masker] dump done."],
-    ["info","[masker] restoring masked dump into masked_db ..."],
-    ["info","[masker] restore verified (res_partner present)."],
-    ["info","[masker] dump slimming: pruning transactional rows older than 90 days ..."],
-    ["info","[masker]   prune root: sale_order on date_order"],
-    ["info","[masker]   prune root: account_move on date"],
-    ["info","[masker]   prune root: stock_picking on scheduled_date"],
-    ["info","[masker]   prune root: mail_message on date"],
-    ["info","[masker] dump slimming: prune + orphan sweep complete; reclaiming space ..."],
-    ["info","[masker] neutralizing (mail=1 fetchmail=1 payment=1 smtp_param=1 crons=1) ..."],
-    ["info","[masker] setting admin password ..."],
-    ["info","[masker] producing downloadable pg_dump of masked DB ..."],
-    ["info","[masker] uploading masked dump (418 MiB) to S3 ..."],
-    ["ok","[masker] DONE: masked replica ready"],
-    ["ok","✓ masked dump → s3://odoo-synth-dumps/runs/run_a1b2c3/masked.dump"],
-  ]},
-  // 4 — Ready (bridge to Act 2)
-  {s:"ready", lines:[
-    ["prompt","$ "],["cmd","odoo-synth env create --profile-id prof_749c8a90 --dump-s3-uri s3://odoo-synth-dumps/runs/run_a1b2c3/masked.dump --issue org/repo#42"],
-    ["mut","# one command — a workspace boots with image + dump + addons live-mounted"],
-    ["info","[env] launching Coder workspace from odoo-synth-env preset ..."],
-    ["info","[env] pulling ECR image 111111111111.dkr.ecr...:prof_749c8a90-4a2f1c8 ..."],
-    ["info","[env] restoring masked dump into local Postgres 16 ..."],
-    ["info","[env] mounting addons repo at /mnt/live (read-write) ..."],
-    ["info","[env] starting Odoo on 127.0.0.1:18069 ..."],
-    ["ok","✓ workspace ready · Odoo answers HTTP · code-server + agent baked in"],
-    ["",""],
-    ["warn","══ Act 1 complete: a provenance-baked image + a masked dump, ready to stamp ══"],
-    ["warn","   Act 2 → 3 issues · 3 workspaces · 3 agents · in parallel · LIVE"],
-  ]},
+const DISCOVER_LOGS=["[panel] discovery output -> s3://odoo-synth-dumps-676206949426/masked-dumps/discovery/prof_749c8a90/183e6b53e5e2/discovery.json", "[panel] launching Coder runner workspace (discovery) ...", "[panel] launching Coder runner workspace (discovery, discover) ...", "[panel] runner workspace discover-d864f8f2 launched; streaming logs ...", "[panel] runner workspace discover-d864f8f2 deleted", "[runner] Fri Jul 17 12:34:29 UTC 2026 starting phase=discover image=676206949426.dkr.ecr.us-east-1.amazonaws.com/odoo-synth/discovery:latest", "[runner] logging in to ECR 676206949426.dkr.ecr.us-east-1.amazonaws.com ...", "[runner] pulling 676206949426.dkr.ecr.us-east-1.amazonaws.com/odoo-synth/discovery:latest ...", "latest: Pulling from odoo-synth/discovery", "676206949426.dkr.ecr.us-east-1.amazonaws.com/odoo-synth/discovery:latest", "[runner] downloading env-setup script ...", "[runner] running container (phase=discover) ...", "[container] [discover] opening SSH tunnel: localhost:15432 -> 52.66.186.162:5432 via sutharson@3.6.155.204:22 ...", "[container] [discover] SSH tunnel up; SOURCE now via 127.0.0.1:15432.", "[container] [discover] source series=17.0 installed_modules=60", "[container] [discover] cloning addons https://github.com/IshaFoundationIT/prs-backend @ uat", "[container] /tmp/addons/custom_addons/prs/models/event_flow.py:157: SyntaxWarning: invalid escape sequence '\\-'", "[container]   if rec.promotion_code and not re.match('^[A-Za-z0-9_\\-./&]{1,40}$', rec.promotion_code):", "[container] /tmp/addons/custom_addons/prs/models/event_flow.py:157: SyntaxWarning: invalid escape sequence '\\-'", "[container]   if rec.promotion_code and not re.match('^[A-Za-z0-9_\\-./&]{1,40}$', rec.promotion_code):", "[container] [discover] custom_modules=16 declared_py=1 req_pkgs=18 heuristic_py=15 config_keys=29", "[container] [discover] masking_plan (greenmask): tables=281 columns=1235", "[container] [discover] uploaded discovery.json to S3", "[container] [discover] discovery complete: hash=fc88dea8aeef python_deps=29 undeclared=10", "[runner] done: container exited 0", "[panel] discovery runner exited with code 0", "[panel] masking plan generated (2792 lines) (kept existing edits)", "[panel] required odoo.conf keys discovered: blink_password, blink_username, custom_acl_endpoint, custom_acl_skip_models, enable_custom_acl, enable_custom_acl_search, facade_authorization_token, form_field_defs, gemini_api_key, s3_aws_access_key_id, s3_aws_region, s3_aws_secret_access_key, s3_bucket_name, sentry_enabled, sentry_exclude_loggers, sentry_include_context, sentry_odoo_dir, sentry_release, sentry_transport, sso_api_key, sso_api_secret, sso_api_system_token, sso_legal_entity, sso_login_action, sso_login_force_consent, sso_login_info_endpoint, sso_login_url, sso_pms_endpoint, system_token", "[panel] NOTE undeclared python deps discovered: Levenshtein, boto3, celery, fuzzywuzzy, imgkit, jmespath, name_match_engine, phonenumbers, pyqrcode, sentry_sdk", "[panel] discovery folded into profile: 60 modules, 29 python deps, hash=fc88dea8aeef"];
+const BUILD_LOGS=["[panel] target image: 676206949426.dkr.ecr.us-east-1.amazonaws.com/odoo-synth/odoo:prof_749c8a90-fc88dea8aeef", "[panel] packaging odoo/ build context ...", "[panel] launching Coder builder workspace (m5.xlarge) ...", "[panel] builder workspace build-ddb24adf launched; waiting for image build+push ...", "[panel] waiting for builder to finish ...", "[build] pushing 676206949426.dkr.ecr.us-east-1.amazonaws.com/odoo-synth/odoo:prof_749c8a90-fc88dea8aeef ...", "[build] pushing to ECR ...", "prof_749c8a90-fc88dea8aeef: digest: sha256:4a8c6d938e110b57ffb3ef5bd3b603468515d34572593b8ea91e93bb34a68a33 size: 856", "[build] done: 676206949426.dkr.ecr.us-east-1.amazonaws.com/odoo-synth/odoo:prof_749c8a90-fc88dea8aeef", "[panel] image ready: 676206949426.dkr.ecr.us-east-1.amazonaws.com/odoo-synth/odoo:prof_749c8a90-fc88dea8aeef"];
+const MASK_LOGS=["[panel] masked dump artifact will be uploaded to S3 (envs hydrate from it)", "[panel] using edited per-source masking profile (greenmask)", "[panel] mask source=isha_donation_rw_role@52.66.186.162:5432/isha_donation via ssh sutharson@3.6.155.204 -> masked@None profile=odoo-core-pii", "[panel] launching Coder runner workspace (masker, mask) ...", "[panel] runner workspace mask-490881d3 launched; streaming logs ...", "[panel] runner workspace mask-490881d3 deleted", "[container] [masker] restore verified (res_partner present).", "[container] [masker] neutralizing (mail=true fetchmail=true payment=true smtp_param=true crons=true) ...", "[container] DO", "[container] [masker] setting admin password ...", "[container] UPDATE 1", "[container] [masker] admin uid 2 password + login('admin') set.", "[container] [masker] producing downloadable pg_dump of masked DB masked ...", "[container] [masker] uploading masked dump (96221294 bytes) to S3 ...", "[container] [masker] masked dump uploaded; download link is available in the control panel.", "[container] [masker] DONE: masked replica ready in masked@127.0.0.1", "[runner] done: container exited 0", "[panel] runner exited with code 0"];
+
+// Real CLI commands (verbatim from argparse) + real run logs (from S3-stored run logs).
+const STAGES = [
+  { idx:0, cmd:"odoo-synth profile create --label 'IRS Donation' --source-dsn 'postgresql://isha_donation_rw_role@52.66.186.162:5432/isha_donation' --ssh-enabled --ssh-bastion sutharson@3.6.155.204 --odoo-series 17.0 --odoo-git-ref 17.0 --addons-git-url https://github.com/IshaFoundationIT/prs-backend --addons-git-ref uat --needs-enterprise",
+    logs:["[ok] created profile prof_749c8a90 → s3://odoo-synth-dumps-676206949426/profiles/prof_749c8a90.yaml"] },
+  { idx:1, cmd:"odoo-synth profile discover prof_749c8a90", logs: DISCOVER_LOGS },
+  { idx:2, cmd:"odoo-synth profile build prof_749c8a90", logs: BUILD_LOGS },
+  { idx:3, cmd:"odoo-synth run mask --profile prof_749c8a90 --produce-dump", logs: MASK_LOGS },
+  { idx:4, cmd:"odoo-synth env create --profile-id prof_749c8a90 --issue org/repo#42",
+    logs:["[info] launching Coder workspace from odoo-synth-env preset ...",
+          "[info] pulling ECR image …:prof_749c8a90-fc88dea8aeef ...",
+          "[info] restoring masked dump into local Postgres 16 ...",
+          "[info] mounting addons repo at /mnt/live (read-write) ...",
+          "[info] starting Odoo on 127.0.0.1:18069 ...",
+          "[ok] workspace ready · Odoo answers HTTP · code-server + agent baked in",
+          "",
+          "[warn] ══ Act 1 complete: provenance-baked image + masked dump, ready to stamp ══",
+          "[warn]    Act 2 → 3 issues · 3 workspaces · 3 agents · in parallel · LIVE"] },
 ];
 
-const term = document.getElementById('term');
-const fill = document.getElementById('fill');
-const pct = document.getElementById('pct');
-const playBtn = document.getElementById('playBtn');
-const resetBtn = document.getElementById('resetBtn');
-const speedSel = document.getElementById('speedSel');
-const steps = [...document.querySelectorAll('.step')];
+const term=document.getElementById('term'), fill=document.getElementById('fill'), pct=document.getElementById('pct');
+const playBtn=document.getElementById('playBtn'), resetBtn=document.getElementById('resetBtn'), speedSel=document.getElementById('speedSel');
+const steps=[...document.querySelectorAll('.step')];
+let timer=null,stage=0,li=0,typing=false,done=false,speed=1;
 
-let timer=null, stage=0, lineIdx=0, charIdx=0, typing=false, done=false;
-let speed = 1; // delay multiplier: higher = slower playback
-
-function setStep(i){
-  steps.forEach((el,idx)=>{
-    el.classList.remove('active','done');
-    if(idx<i) el.classList.add('done');
-    else if(idx===i) el.classList.add('active');
-  });
-  const pctVal = Math.round(((i+(lineIdx>0?0.5:0))/SCRIPT.length)*100);
-  fill.style.width = pctVal+'%'; pct.textContent = pctVal+'%';
-}
-
-function printFull(cls, txt){
-  if(!txt && cls!==""){return}
-  const d=document.createElement('div'); d.className='line';
-  if(cls==="prompt"){d.innerHTML='<span class="prompt">'+esc(txt)+'</span>';}
-  else if(cls==="cmd"){d.innerHTML='<span class="prompt">$ </span><span class="cmd">'+esc(txt)+'</span>';}
-  else if(cls===""){d.innerHTML='<span> </span>';}
-  else {d.innerHTML='<span class="'+cls+'">'+esc(txt)+'</span>';}
-  term.appendChild(d); term.scrollTop=term.scrollHeight;
-}
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-
-let curEl=null, curTxt="", curCls="";
+function clsFor(line){
+  if(line.startsWith('[panel]'))return 'panel';
+  if(line.startsWith('[runner]'))return 'runner';
+  if(line.startsWith('[container]')||line.startsWith('[masker]')||line.startsWith('[discover]')||line.startsWith('[build]'))return 'container';
+  if(line.startsWith('[ok]')||line.includes('DONE')||line.includes('complete'))return 'ok';
+  if(line.startsWith('[warn]'))return 'warn';
+  if(line.startsWith('[info]'))return 'info';
+  return 'mut';
+}
+function setStep(i){
+  steps.forEach((el,idx)=>{el.classList.remove('active','done');if(idx<i)el.classList.add('done');else if(idx===i)el.classList.add('active');});
+  const pv=Math.round(((i+(li>0?.5:0))/STAGES.length)*100);
+  fill.style.width=pv+'%';pct.textContent=pv+'%';
+}
+function printLine(txt){
+  const d=document.createElement('div');d.className='line';
+  if(txt===''){d.innerHTML='&nbsp;';}
+  else{d.innerHTML='<span class="'+clsFor(txt)+'">'+esc(txt)+'</span>';}
+  term.appendChild(d);term.scrollTop=term.scrollHeight;
+}
+let curEl=null,curTxt='';
 function tick(){
-  if(done) return;
-  if(stage>=SCRIPT.length){finish();return;}
-  const stageData=SCRIPT[stage];
-  if(lineIdx>=stageData.lines.length){stage++;lineIdx=0;setStep(stage);tick();return;}
-  const [cls,txt]=stageData.lines[lineIdx];
+  if(done)return;
+  if(stage>=STAGES.length){finish();return;}
+  const s=STAGES[stage];
   if(!typing){
-    if(cls==="prompt"){ // prompt+cmd: type the cmd
-      typing=true; charIdx=0; curCls="cmd"; curTxt=txt; curEl=document.createElement('div');curEl.className='line';term.appendChild(curEl);
-    } else if(cls===""){
-      printFull("", ""); lineIdx++; tick(); return;
-    } else {
-      printFull(cls,txt); lineIdx++; tick(); return;
+    if(li===0){ // type the command
+      typing=true;curTxt=s.cmd;curEl=document.createElement('div');curEl.className='line';term.appendChild(curEl);
+      return typeChar();
+    } else if(li<=s.logs.length){
+      const l=s.logs[li-1];printLine(l);li++;timer=setTimeout(tick,300*speed);return;
+    } else { stage++;li=0;setStep(stage);timer=setTimeout(tick,250*speed);return; }
+  }
+  typeChar();
+}
+function typeChar(){
+  if(li===0 && typing){
+    // typing command
+    const typed=curTxt.slice(0,Math.max(0,curTxt.length-(curTxt.length>80?6:3)));
+    curEl.innerHTML='<span class="prompt">$ </span><span class="cmd">'+esc(curTxt.slice(0,window._cc||0))+'</span><span class="cursor"></span>';
+    window._cc=(window._cc||0)+Math.max(1,Math.round(curTxt.length/45));
+    if((window._cc)>=curTxt.length){
+      curEl.innerHTML='<span class="prompt">$ </span><span class="cmd">'+esc(curTxt)+'</span>';
+      typing=false;window._cc=0;li=1;timer=setTimeout(tick,350*speed);return;
     }
+    term.scrollTop=term.scrollHeight;timer=setTimeout(typeChar,16*speed);
   }
-  // typing the cmd
-  if(charIdx<=curTxt.length){
-    curEl.innerHTML='<span class="prompt">$ </span><span class="cmd">'+esc(curTxt.slice(0,charIdx))+'</span><span class="cursor"></span>';
-    charIdx+=Math.max(1,Math.round(curTxt.length/40));
-    term.scrollTop=term.scrollHeight;
-  } else {
-    curEl.innerHTML='<span class="prompt">$ </span><span class="cmd">'+esc(curTxt)+'</span>';
-    typing=false; lineIdx++; 
-  }
-  timer=setTimeout(tick, typing?(22*speed):(620*speed));
 }
-
-function start(){
-  if(done){reset();}
-  playBtn.disabled=true; playBtn.textContent='▶ Playing…';
-  setStep(0); tick();
-}
+function start(){if(done)reset();playBtn.disabled=true;playBtn.textContent='▶ Playing…';setStep(0);tick();}
 function finish(){
-  done=true; playBtn.disabled=false; playBtn.textContent='↺ Replay';
-  fill.style.width='100%'; pct.textContent='100%';
+  done=true;playBtn.disabled=false;playBtn.textContent='↺ Replay';
+  fill.style.width='100%';pct.textContent='100%';
   steps.forEach(el=>{el.classList.remove('active');el.classList.add('done');});
   const d=document.createElement('div');d.className='line';d.style.marginTop='8px';
   d.innerHTML='<span class="ok">▍ ready for Act 2 — hand off to the live role-play</span>';
-  term.appendChild(d); term.scrollTop=term.scrollHeight;
+  term.appendChild(d);term.scrollTop=term.scrollHeight;
 }
-function reset(){
-  clearTimeout(timer); term.innerHTML=''; stage=0; lineIdx=0; charIdx=0; typing=false; done=false;
-  steps.forEach(el=>el.classList.remove('active','done'));
-  fill.style.width='0%'; pct.textContent='0%';
-  playBtn.disabled=false; playBtn.textContent='▶ Play';
-}
-playBtn.addEventListener('click',start);
-resetBtn.addEventListener('click',reset);
-speedSel.addEventListener('change',()=>{ speed=parseFloat(speedSel.value); });
-reset();
+function reset(){clearTimeout(timer);term.innerHTML='';stage=0;li=0;typing=false;done=false;window._cc=0;
+  steps.forEach(el=>el.classList.remove('active','done'));fill.style.width='0%';pct.textContent='0%';
+  playBtn.disabled=false;playBtn.textContent='▶ Play';}
+playBtn.onclick=start;resetBtn.onclick=reset;
+speedSel.onchange=()=>{speed=parseFloat(speedSel.value);};
 </script>
 </body>
 </html>

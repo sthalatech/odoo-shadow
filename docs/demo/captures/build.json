@@ -1,0 +1,12 @@
+[
+ "[panel] target image: 676206949426.dkr.ecr.us-east-1.amazonaws.com/odoo-synth/odoo:prof_749c8a90-fc88dea8aeef",
+ "[panel] packaging odoo/ build context ...",
+ "[panel] launching Coder builder workspace (m5.xlarge) ...",
+ "[panel] builder workspace build-ddb24adf launched; waiting for image build+push ...",
+ "[panel] waiting for builder to finish ...",
+ "[build] pushing 676206949426.dkr.ecr.us-east-1.amazonaws.com/odoo-synth/odoo:prof_749c8a90-fc88dea8aeef ...",
+ "[build] pushing to ECR ...",
+ "prof_749c8a90-fc88dea8aeef: digest: sha256:4a8c6d938e110b57ffb3ef5bd3b603468515d34572593b8ea91e93bb34a68a33 size: 856",
+ "[build] done: 676206949426.dkr.ecr.us-east-1.amazonaws.com/odoo-synth/odoo:prof_749c8a90-fc88dea8aeef",
+ "[panel] image ready: 676206949426.dkr.ecr.us-east-1.amazonaws.com/odoo-synth/odoo:prof_749c8a90-fc88dea8aeef"
+]

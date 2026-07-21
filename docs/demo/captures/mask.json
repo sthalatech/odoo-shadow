@@ -1,0 +1,20 @@
+[
+ "[panel] masked dump artifact will be uploaded to S3 (envs hydrate from it)",
+ "[panel] using edited per-source masking profile (greenmask)",
+ "[panel] mask source=isha_donation_rw_role@52.66.186.162:5432/isha_donation via ssh sutharson@3.6.155.204 -> masked@None profile=odoo-core-pii",
+ "[panel] launching Coder runner workspace (masker, mask) ...",
+ "[panel] runner workspace mask-490881d3 launched; streaming logs ...",
+ "[panel] runner workspace mask-490881d3 deleted",
+ "[container] [masker] restore verified (res_partner present).",
+ "[container] [masker] neutralizing (mail=true fetchmail=true payment=true smtp_param=true crons=true) ...",
+ "[container] DO",
+ "[container] [masker] setting admin password ...",
+ "[container] UPDATE 1",
+ "[container] [masker] admin uid 2 password + login('admin') set.",
+ "[container] [masker] producing downloadable pg_dump of masked DB masked ...",
+ "[container] [masker] uploading masked dump (96221294 bytes) to S3 ...",
+ "[container] [masker] masked dump uploaded; download link is available in the control panel.",
+ "[container] [masker] DONE: masked replica ready in masked@127.0.0.1",
+ "[runner] done: container exited 0",
+ "[panel] runner exited with code 0"
+]
