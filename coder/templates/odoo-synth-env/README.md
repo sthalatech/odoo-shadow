@@ -23,8 +23,11 @@ database, with an addons repo live-mounted for development.
     branch (merge/PR). No external loop needed.
   - **Headless Chrome for Testing** — `chrome`, the agent's browser for viewing
     a page, testing the Odoo UI, and capturing PNG screenshots as PR evidence:
-    `chrome --headless=new --no-sandbox --dump-dom <url>` (HTML) and
-    `chrome --headless=new --no-sandbox --screenshot=out.png <url>` (PNG).
+    `chrome-dom <url>` (HTML) and `chrome-shot out.png <url>` (PNG) -- wrappers
+    around `chrome` that unset the empty `DBUS_SESSION_BUS_ADDRESS` (which makes
+    raw Chrome hang) and pass `--timeout=15000` (Odoo's /web/login redirect chain
+    never fires a load event, so raw `--headless=new` waits forever). Use the
+    wrappers, not raw `chrome`.
 
 ## Create with the preset
 

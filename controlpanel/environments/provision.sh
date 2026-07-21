@@ -161,6 +161,46 @@ if [ -n "$CFT_ARCH" ]; then
   ln -sf /usr/local/bin/chrome /usr/local/bin/headless-chrome
 fi
 
+# --- headless-Chrome wrappers (chrome-shot / chrome-dom) -------------------
+# The agent drives headless Chrome for UI verification + PR-evidence screenshots.
+# Two environment quirks make a bare `chrome --headless=new ...` hang forever in
+# this workspace, so we wrap them here and the agent calls the wrappers instead
+# of raw chrome:
+#
+#   1. DBUS_SESSION_BUS_ADDRESS is *set but empty* in the dev login shell. Chrome
+#      (new headless) treats an empty bus address as an unparseable D-Bus address
+#      and blocks retrying bus.cc connections ("Could not parse server address"),
+#      never reaching page load. Unsetting it lets Chrome autolaunch/fall back.
+#   2. Odoo's /web/login 303-redirects to /website_sso, and the redirect target
+#      (/) returns 500, so the page's `load` event never fires. Chrome's new
+#      headless mode then waits INDEFINITELY for load completion (it has no
+#      default nav timeout). --timeout=<ms> caps navigation so Chrome captures
+#      whatever rendered and exits instead of hanging. (Verified: exit 0,
+#      1280x800 PNG of the login page produced.)
+#
+# --disable-dev-shm-usage avoids /dev/shm exhaustion crashes in containers.
+install -m 0755 /dev/stdin /usr/local/bin/chrome-shot <<'SHOT'
+#!/usr/bin/env bash
+# chrome-shot <out.png> <url> [extra chrome flags...]  -- capture a PNG screenshot.
+set -euo pipefail
+out="${1:?usage: chrome-shot <out.png> <url> [flags...]}"; url="${2:?need url}"; shift 2
+exec env -u DBUS_SESSION_BUS_ADDRESS /usr/local/bin/chrome \
+    --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+    --hide-scrollbars --window-size=1280,800 --timeout=15000 \
+    --screenshot="$out" "$@" "$url"
+SHOT
+install -m 0755 /dev/stdin /usr/local/bin/chrome-dom <<'DOM'
+#!/usr/bin/env bash
+# chrome-dom <url> [extra chrome flags...]  -- print rendered (post-JS) HTML to stdout.
+set -euo pipefail
+url="${1:?usage: chrome-dom <url> [flags...]}"; shift
+exec env -u DBUS_SESSION_BUS_ADDRESS /usr/local/bin/chrome \
+    --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+    --timeout=15000 --dump-dom "$@" "$url"
+DOM
+ln -sf /usr/local/bin/chrome-shot /usr/local/bin/headless-chrome-shot
+ln -sf /usr/local/bin/chrome-dom   /usr/local/bin/headless-chrome-dom
+
 # A dedicated unprivileged developer user owns the workspace and runs Odoo.
 if ! id dev >/dev/null 2>&1; then
   useradd -m -s /bin/bash dev
@@ -172,6 +212,8 @@ ln -sf /usr/local/bin/claude   /home/dev/.local/bin/claude
 ln -sf /usr/local/bin/opencode /home/dev/.local/bin/opencode
 ln -sf /usr/local/bin/bun      /home/dev/.local/bin/bun
 ln -sf /usr/local/bin/chrome   /home/dev/.local/bin/chrome 2>/dev/null || true
+ln -sf /usr/local/bin/chrome-shot /home/dev/.local/bin/chrome-shot 2>/dev/null || true
+ln -sf /usr/local/bin/chrome-dom   /home/dev/.local/bin/chrome-dom 2>/dev/null || true
 # Make the global opencode.json (superpowers plugin) + Claude plugin symlink
 # visible to the dev user's home so both agents load superpowers at session start.
 install -d -o dev -g dev /home/dev/.config/opencode /home/dev/.claude/plugins

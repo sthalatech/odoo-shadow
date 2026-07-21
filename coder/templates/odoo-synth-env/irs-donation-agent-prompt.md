@@ -30,26 +30,34 @@ branch (merge/PR). Follow its methodology.
 
 Do NOT launch a GUI browser. Use **headless Chrome for Testing** (installed on
 the AMI as `chrome`) to view pages, test the Odoo UI, and capture screenshots.
-It does both jobs — scraping and screenshots — in one tool:
+It does both jobs — scraping and screenshots — in one tool.
 
-- Render a page to HTML (post-JS DOM): `chrome --headless=new --no-sandbox --disable-gpu --dump-dom http://127.0.0.1:18069/web/login`
-- Capture a PNG screenshot (evidence for the PR):
-  `chrome --headless=new --no-sandbox --disable-gpu --hide-scrollbars --window-size=1280,800 --screenshot=/home/dev/workspace/repo/docs/issue-<N>-after.png http://127.0.0.1:18069/<your-route>`
-- Full-page (tall) screenshot: set `--window-size=1280,2400` (or larger to the
-  page height). `--screenshot=` writes the PNG; Chrome exits after capture.
-- `--no-sandbox` is required when running as root / in a container; harmless
-  otherwise. `--disable-gpu` avoids the software-GPU noise on headless servers.
+IMPORTANT: do NOT invoke `chrome` directly with `--headless=new` flags — a bare
+`chrome --headless=new ...` hangs forever in this workspace (an empty
+`DBUS_SESSION_BUS_ADDRESS` makes Chrome block on a D-Bus connection that never
+resolves, and Odoo's `/web/login` redirect chain never fires a `load` event, so
+Chrome waits indefinitely). Two wrappers are installed on the AMI that fix both —
+USE THEM:
 
-`--dump-dom` prints the rendered HTML to stdout (pipe to a file or `head`).
-`--screenshot=` writes a PNG of the page at the `--window-size` viewport.
+- `chrome-dom <url>` — print the rendered (post-JS) HTML of a page to stdout.
+  Pipe to a file or `head`: `chrome-dom http://127.0.0.1:18069/web/login | head`.
+- `chrome-shot <out.png> <url>` — capture a PNG screenshot (evidence for the PR):
+  `chrome-shot /home/dev/workspace/repo/docs/issue-<N>-after.png http://127.0.0.1:18069/<your-route>`
+  (full-page/tall: append `--window-size=1280,2400` as extra trailing flags.)
+
+Both wrappers already pass `--headless=new --no-sandbox --disable-gpu
+--disable-dev-shm-usage --timeout=15000` (a navigation timeout so Chrome captures
+whatever rendered and exits instead of hanging on Odoo's redirect-to-500 chain)
+and unset `DBUS_SESSION_BUS_ADDRESS`. You may append extra Chrome flags after the
+URL/args. `--screenshot=` writes the PNG and Chrome exits after capture.
 
 ### Screenshots as evidence
 
 When you change the UI, **prove it works** with a screenshot captured via
-headless Chrome, and attach/reference it in the PR body:
+`chrome-shot`, and attach/reference it in the PR body:
 
 - Capture the changed view, e.g.:
-  `chrome --headless=new --no-sandbox --disable-gpu --hide-scrollbars --window-size=1280,800 --screenshot=/home/dev/workspace/repo/docs/issue-<N>-after.png http://127.0.0.1:18069/<your-route>`
+  `chrome-shot /home/dev/workspace/repo/docs/issue-<N>-after.png http://127.0.0.1:18069/<your-route>`
 - Put the screenshot under the repo (e.g. `docs/issue-<N>-after.png`) so it
   ships with the branch, and mention its path in the PR body.
 - If the change has no UI surface (pure model/data change), say so explicitly
@@ -182,8 +190,8 @@ dynamic forms, payments, and inventory. ~64 model files; the biggest are
   /prs:TestErpProductValidation --stop-after-init` (odoo must be started with
   `--test-enable` / `--init` for the module to load tests; the env image is
   configured for this).
-- Verify the UI loads: `chrome --headless=new --no-sandbox --disable-gpu
-  --dump-dom http://127.0.0.1:18069/web/login` should print the login page HTML.
+- Verify the UI loads: `chrome-dom http://127.0.0.1:18069/web/login` should
+  print the login page HTML (use the wrapper, not raw `chrome`).
 
 ## Your task
 
@@ -193,7 +201,7 @@ work. **Read that file (and `AGENT.md` in your cwd if present) before you
 start** — they carry the issue body, the commit/push/PR mandate, and the
 browser guidance. Make the smallest correct change consistent with the
 conventions above, add/adjust tests, verify Odoo still serves `/web/login`
-(`chrome --headless=new --no-sandbox --dump-dom http://127.0.0.1:18069/web/login`),
-**capture a screenshot of the changed view with headless Chrome** as evidence
+(`chrome-dom http://127.0.0.1:18069/web/login`),
+**capture a screenshot of the changed view with `chrome-shot`** as evidence
 for the PR, and commit + push to a branch as described above. The DB data is
 masked/fake — safe to mutate freely.

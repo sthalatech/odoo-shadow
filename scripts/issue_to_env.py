@@ -208,11 +208,15 @@ def _build_task(issue_ref: str, title: str, url: str, body: str,
         3. Reload + upgrade Odoo: `docker restart env-odoo` then
            `docker exec env-odoo odoo -d odoo -u <addon> --stop-after-init`.
         4. VERIFY VISUALLY with headless Chrome for Testing (do NOT launch a
-           GUI browser). The `chrome` binary is on PATH. Render the page to
-           HTML and capture a PNG screenshot of the changed view as evidence:
-             chrome --headless=new --no-sandbox --disable-gpu --dump-dom http://127.0.0.1:18069/web/login
-             chrome --headless=new --no-sandbox --disable-gpu --hide-scrollbars --window-size=1280,800 \
-               --screenshot=/home/dev/workspace/repo/docs/issue-{issue_ref}-after.png http://127.0.0.1:18069/<your-route>
+           GUI browser). Two wrappers are on PATH and you MUST use them (raw
+           `chrome --headless=new ...` hangs forever in this workspace: an empty
+           DBUS_SESSION_BUS_ADDRESS makes Chrome block on a D-Bus connection,
+           and Odoo's /web/login redirect chain never fires a load event so
+           Chrome waits indefinitely). The wrappers fix both:
+             chrome-dom http://127.0.0.1:18069/web/login        # render page -> HTML on stdout
+             chrome-shot /home/dev/workspace/repo/docs/issue-{issue_ref}-after.png \
+               http://127.0.0.1:18069/<your-route>              # capture a PNG screenshot
+           (full-page/tall: append `--window-size=1280,2400` as a trailing flag.)
            Save the screenshot under the repo (e.g.
            /home/dev/workspace/repo/docs/issue-{issue_ref}-after.png) and
            reference its path in the PR body. If the change has no UI surface
