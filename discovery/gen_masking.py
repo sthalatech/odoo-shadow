@@ -66,7 +66,8 @@ def snapshot_schema() -> dict[str, dict[str, dict]]:
         tbl, col, dtype, nullable = row[0], row[1], row[2], row[3]
         tables.setdefault(tbl, {})[col] = {
             "data_type": dtype, "fk_target": None,
-            "unique": False, "not_null": (nullable == "NO")}
+            "unique": False, "not_null": (nullable == "NO"),
+            "is_selection": False}
     # ANY column of ANY unique index (covers single + multi-column, partial +
     # full, and constraint-backed indexes -- pg_constraint unique constraints
     # are realized as unique indexes, so pg_index alone sees them all).
@@ -99,6 +100,29 @@ def snapshot_schema() -> dict[str, dict[str, dict]]:
         tbl, col, ftbl = row[0], row[1], row[2]
         if tbl in tables and col in tables[tbl]:
             tables[tbl][col]["fk_target"] = ftbl
+
+    # Odoo SELECTION fields are stored as varchar but hold a fixed vocabulary
+    # (out_invoice/in_invoice, posted/draft/cancel, ...). They are NOT PII and
+    # must NEVER be masked -- Odoo code does dict lookups keyed by the stored
+    # value in computes/onchanges/views (e.g. account.move._get_move_display_name
+    # does {'out_invoice': ...}[move.move_type]; masking move_type to '*****'
+    # -> KeyError on EVERY record of that model). The name-based _SKIP_COLUMNS /
+    # _SKIP_TABLES heuristics can't enumerate the ~590 distinct selection names,
+    # so detect them authoritatively from ir_model_fields (ttype='selection').
+    # Map Odoo model -> table by replacing '.' with '_' (the Odoo convention;
+    # _auto=False/abstract models don't have tables, so their (model,col) won't
+    # be in `tables` and are harmlessly skipped).
+    sels = _psql_rows(
+        "SELECT f.model, f.name "
+        "FROM ir_model_fields f "
+        "WHERE f.ttype='selection'")
+    for row in sels:
+        if len(row) < 2:
+            continue
+        model, field = row[0], row[1]
+        tbl = model.replace(".", "_")
+        if tbl in tables and field in tables[tbl]:
+            tables[tbl][field]["is_selection"] = True
     return tables
 
 
@@ -334,7 +358,8 @@ def _exclude_candidates() -> set[str] | None:
 
 
 def transformer_for(column: str, dtype: str, fk_target: str | None,
-                    unique: bool = False, table: str = "") -> dict | None:
+                    unique: bool = False, table: str = "",
+                    is_selection: bool = False) -> dict | None:
     """Return a greenmask transformer dict for a column, or None to leave it.
 
     ``unique`` = the column is part of ANY unique index/constraint (single- or
@@ -346,6 +371,12 @@ def transformer_for(column: str, dtype: str, fk_target: str | None,
     """
     if fk_target:
         return None  # FK (incl. partner ref): structural; target row is masked itself
+    if is_selection:
+        # Odoo selection field (detected from ir_model_fields.ttype='selection'):
+        # a fixed-vocabulary enum (out_invoice/draft/posted/...), NOT PII. Odoo
+        # code keys dicts off these values in computes/onchanges/views, so
+        # masking them ('*****') raises KeyError on every record of the model.
+        return None
     base = (dtype or "").lower().split("(")[0].strip()
     low = column.lower()
     if base == "bytea":
@@ -473,7 +504,8 @@ def generate_plan(installed_modules: list[str], _baseline_dir=None) -> tuple[str
         for col in sorted(schema[table]):
             info = schema[table][col]
             t = transformer_for(col, info["data_type"], info["fk_target"],
-                                 info.get("unique", False), table)
+                                 info.get("unique", False), table,
+                                 info.get("is_selection", False))
             if t:
                 tlist.append(t)
                 n_cols += 1
