@@ -85,6 +85,11 @@
     <span class="sub">Prod DB → masked dump → provenance-baked image → ready</span>
     <div class="controls">
       <div class="progress"><div class="bar"><div class="fill" id="fill"></div></div><span id="pct">0%</span></div>
+      <select class="btn" id="speedSel" title="playback speed">
+        <option value="1.6">1.6× slow</option>
+        <option value="1" selected>1× normal</option>
+        <option value="0.6">0.6× talk</option>
+      </select>
       <button class="btn" id="resetBtn">↺ Reset</button>
       <button class="btn go" id="playBtn">▶ Play</button>
     </div>
@@ -233,9 +238,11 @@ const fill = document.getElementById('fill');
 const pct = document.getElementById('pct');
 const playBtn = document.getElementById('playBtn');
 const resetBtn = document.getElementById('resetBtn');
+const speedSel = document.getElementById('speedSel');
 const steps = [...document.querySelectorAll('.step')];
 
 let timer=null, stage=0, lineIdx=0, charIdx=0, typing=false, done=false;
+let speed = 1; // delay multiplier: higher = slower playback
 
 function setStep(i){
   steps.forEach((el,idx)=>{
@@ -277,13 +284,13 @@ function tick(){
   // typing the cmd
   if(charIdx<=curTxt.length){
     curEl.innerHTML='<span class="prompt">$ </span><span class="cmd">'+esc(curTxt.slice(0,charIdx))+'</span><span class="cursor"></span>';
-    charIdx+=Math.max(1,Math.round(curTxt.length/60));
+    charIdx+=Math.max(1,Math.round(curTxt.length/40));
     term.scrollTop=term.scrollHeight;
   } else {
     curEl.innerHTML='<span class="prompt">$ </span><span class="cmd">'+esc(curTxt)+'</span>';
     typing=false; lineIdx++; 
   }
-  timer=setTimeout(tick, typing?14:300);
+  timer=setTimeout(tick, typing?(22*speed):(620*speed));
 }
 
 function start(){
@@ -307,6 +314,7 @@ function reset(){
 }
 playBtn.addEventListener('click',start);
 resetBtn.addEventListener('click',reset);
+speedSel.addEventListener('change',()=>{ speed=parseFloat(speedSel.value); });
 reset();
 </script>
 </body>
