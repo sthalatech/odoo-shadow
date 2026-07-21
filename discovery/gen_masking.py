@@ -352,18 +352,33 @@ def transformer_for(column: str, dtype: str, fk_target: str | None,
     # jsonb emit invalid JSON that breaks restore (see _BUSINESS_NAME_JSON_REPLACE).
     if (low == "name" and table in _NAME_IS_BUSINESS_TABLES
             and table not in _DO_NOT_MASK_NAME):
-        if unique:
-            return None  # rare: don't risk a unique-index collision
         if is_json:
+            # jsonb translatable name. RandomCompany/RandomPerson on jsonb emit
+            # a bare string -> invalid JSON -> COPY fails -> empty table, so use
+            # Replace with a valid JSON constant. If the column is UNIQUE a
+            # constant would collide on the unique index -- but no Odoo jsonb
+            # ``name`` is unique in practice (verified: account_journal,
+            # account_account, product_template names are all non-unique). Guard
+            # anyway: leave a unique jsonb name unmasked rather than break
+            # restore with a guaranteed collision.
+            if unique:
+                return None
             val = _BUSINESS_NAME_JSON_REPLACE.get(
                 table, _BUSINESS_NAME_JSON_REPLACE["_default"])
             return {"name": "Replace", "column": column,
                     "value": val, "keep_null": True}
-        # text name on a business table: a realistic random company / entity
-        # name. RandomCompany ("Epic Valley Inc.") fits org/warehouse/bank /
-        # journal/account labels better than a person name.
+        # text name on a business table: a realistic company / entity name.
+        # RandomCompany ("Epic Valley Inc.") fits org/warehouse/bank/journal/
+        # account labels better than a person name. For a UNIQUE name column
+        # (res_company.name, stock_warehouse.name both have single-column
+        # UNIQUE indexes in real Odoo DBs) use engine=hash: it is deterministic
+        # per input -> injective -> never collides on distinct names, so the
+        # unique index survives. For non-unique names use engine=random for
+        # maximum variety.
+        engine = "hash" if unique else "random"
         return {"name": "RandomCompany", "column": column,
-                "template": "{{ .CompanyName }} {{ .CompanySuffix }}"}
+                "template": "{{ .CompanyName }} {{ .CompanySuffix }}",
+                "engine": engine}
     if not is_json and base not in _TEXT_TYPES:
         return None
     if is_json:
@@ -538,6 +553,13 @@ def _render_greenmask(table_transformers: dict[str, list[dict]],
             if t["name"] in ("RandomPerson", "RandomCompany"):
                 lines.append(f"        - name: {t['name']}")
                 lines.append("          params:")
+                # RandomCompany supports engine=random|hash; hash is injective
+                # (deterministic per input) so it is safe on UNIQUE name
+                # columns (res_company.name, stock_warehouse.name). RandomPerson
+                # is only ever emitted on non-unique person names, so it has no
+                # engine param.
+                if t.get("engine"):
+                    lines.append(f"            engine: {t['engine']}")
                 lines.append("            columns:")
                 lines.append(f"              - name: {t['column']}")
                 lines.append(f"                template: {_q(t['template'])}")
