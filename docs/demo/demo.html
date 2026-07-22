@@ -256,19 +256,23 @@ function attachControls(){
   const fw=document.getElementById(fid).contentWindow;
   curAPI = fw && fw.actAPI ? fw.actAPI : null;
   ctrls.classList.toggle('hidden', !curAPI);
-  if(curAPI){
-    // mirror iframe speed -> parent select (and keep parent in sync)
-    curAPI.setSpeed(pSpeed.value);
-    if(curAPI.kind==='agents'){ ptimer.style.display=''; curAPI.onTimer=t=>ptimer.textContent=t; }
-    else { ptimer.style.display='none'; }
-    curAPI.onState = (st)=>syncCtrlUI(st);
-    syncCtrlUI(curAPI.state());
+  if(!curAPI){
+    // act iframe still booting its script — retry until actAPI is ready
+    setTimeout(attachControls, 150);
+    return;
   }
+  // mirror iframe speed -> parent select (and keep parent in sync)
+  curAPI.setSpeed(pSpeed.value);
+  if(curAPI.kind==='agents'){ ptimer.style.display=''; curAPI.onTimer=t=>ptimer.textContent=t; document.getElementById('prog').style.display='none'; }
+  else { ptimer.style.display='none'; document.getElementById('prog').style.display=''; }
+  curAPI.onState = (st)=>syncCtrlUI(st);
+  syncCtrlUI(curAPI.state());
 }
 
 function syncCtrlUI(st){
-  if(!curAPI){ pRun.style.display='none'; pAdv.style.display='none'; pReset.style.display='none'; pSpeed.style.display='none'; return; }
-  pSpeed.style.display=''; pReset.style.display='';
+  if(!curAPI){ pRun.style.display='none'; pAdv.style.display='none'; pReset.style.display='none'; pSpeed.style.display='none'; pfill.parentElement.parentElement.style.display='none'; ptimer.style.display='none'; return; }
+  pRun.style.display=''; pSpeed.style.display=''; pReset.style.display='';
+  document.getElementById('prog').style.display='';
   if(curAPI.kind==='pipeline'){
     pAdv.style.display='';  // advance only meaningful for pipeline pauses
     if(!st){ pRun.textContent='▶ Run'; pRun.classList.add('pulse'); pAdv.classList.remove('pulse'); pAdv.disabled=true; pfill.style.width='0';ppct.textContent='0%'; return; }
