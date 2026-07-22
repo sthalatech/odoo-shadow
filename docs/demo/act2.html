@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>odoo-synth — Act 2: 3 Agents in Parallel</title>
+<title>odoo-synth — Concurrent Agent Sessions</title>
 <style>
   :root{
     --bg:#0b0f17; --panel:#121826; --panel2:#1a2236; --ink:#e6ebf5; --mut:#8b97b4;
@@ -69,9 +69,9 @@
 <div class="stage">
   <header>
     <h1>odoo-synth</h1>
-    <span class="pill">ACT 2 · 3 AGENTS IN PARALLEL</span>
-    <span class="real">▶ REAL OPENCODE SESSIONS</span>
-    <span class="sub">3 issues · 3 workspaces · 3 autonomous agents — replayed from real session history</span>
+    <span class="pill">CONCURRENT AGENT SESSIONS</span>
+    <span class="real">REAL SESSION TRANSCRIPTS</span>
+    <span class="sub">3 issues · 3 workspaces · 3 autonomous agents — reconstructed from real session history</span>
     <div class="controls">
       <span class="timer" id="timer">00:00</span>
       <select class="btn" id="speedSel" title="playback speed">
@@ -80,7 +80,7 @@
         <option value="0.6">0.6× fast</option>
       </select>
       <button class="btn" id="resetBtn">↺ Reset</button>
-      <button class="btn go" id="playBtn">▶ Play All</button>
+      <button class="btn go" id="playBtn">▶ Run all</button>
     </div>
   </header>
 
@@ -113,11 +113,11 @@ DATA.forEach((d,ci)=>{
   col.innerHTML=
     '<div class="col-head"><div class="col-badge">'+LETTERS[ci]+'</div>'+
     '<div><div class="col-title">'+esc(d.title)+'</div>'+
-    '<div class="col-hat">'+esc(d.role)+' · live workspace</div></div>'+
-    '<div class="col-status" id="stat-'+ci+'">beat 1/6</div></div>'+
+    '<div class="col-hat">'+esc(d.role)+' · workspace</div></div>'+
+    '<div class="col-status" id="stat-'+ci+'">phase 1/6</div></div>'+
     '<div class="term-body" id="term-'+ci+'"></div>'+
     '<div class="col-foot">'+
-      '<button class="col-cont" id="cont-'+ci+'">▶ Start</button>'+
+      '<button class="col-cont" id="cont-'+ci+'">▶ Begin</button>'+
       '<span class="outcome" id="out-'+ci+'"></span>'+
     '</div>';
   colsEl.appendChild(col);
@@ -142,7 +142,7 @@ function printLine(p,line){
 function typeCmd(p){
   // type the beat header as a pseudo-command line
   const beatName=p.d.beats[p.beat].name;
-  const txt='◆ '+beatName+' ▍ '+p.d.role+' presses Continue';
+  const txt='◆ '+beatName+' ▍ '+p.d.role+' advances';
   if(!p.cur){p.cur=document.createElement('div');p.cur.className='line';p.term.appendChild(p.cur);}
   p.cur.innerHTML='<span class="mut">'+esc(txt.slice(0,p.cc))+'</span><span class="cursor"></span>';
   p.cc+=Math.max(1,Math.round(txt.length/30));
@@ -170,7 +170,7 @@ function tick(p){
 }
 function pauseBeat(p){
   p.paused=true;
-  p.stat.textContent='beat '+(p.beat+1)+'/6 ✓';
+  p.stat.textContent='phase '+(p.beat+1)+'/6 ✓';
   // advance rail marking
   markBeatDone(p.beat);
   if(p.beat>=BEATS.length-1){
@@ -179,7 +179,7 @@ function pauseBeat(p){
   // show continue button (per-column), unless global play
   if(!globalPlay){
     p.cont.disabled=false;p.cont.classList.add('pulse');
-    p.cont.textContent='▶ Continue to '+BEATS[p.beat+1];
+    p.cont.textContent='▶ Advance to '+BEATS[p.beat+1];
   } else {
     // auto-advance after a short beat
     p.timer=setTimeout(()=>continueCol(p),900*speed);
@@ -190,12 +190,12 @@ function continueCol(p){
   p.paused=false;p.cont.disabled=true;p.cont.classList.remove('pulse');
   p.beat++;p.li=0;
   if(p.beat>=BEATS.length){finishCol(p);return;}
-  p.stat.textContent='beat '+(p.beat+1)+'/6';
+  p.stat.textContent='phase '+(p.beat+1)+'/6';
   tick(p);
 }
 function finishCol(p){
   p.done=true;p.paused=true;
-  p.cont.disabled=true;p.cont.classList.remove('pulse');p.cont.textContent='✓ done';
+  p.cont.disabled=true;p.cont.classList.remove('pulse');p.cont.textContent='✓ complete';
   p.stat.textContent='complete';
   p.out.textContent=p.d.outcome||'';
   // print outcome into term too
@@ -224,9 +224,9 @@ function markBeatDone(i){
 }
 
 // ---- controls ----
-function startCol(p){if(p.done)resetCol(p);p.paused=false;p.cont.disabled=true;p.cont.classList.remove('pulse');p.cont.textContent='… working';tick(p);}
+function startCol(p){if(p.done)resetCol(p);p.paused=false;p.cont.disabled=true;p.cont.classList.remove('pulse');p.cont.textContent='… running';tick(p);}
 function resetCol(p){clearTimeout(p.timer);p.term.innerHTML='';p.beat=0;p.li=0;p.typing=false;p.done=false;p.paused=true;p.cc=0;p.cur=null;
-  p.cont.disabled=false;p.cont.classList.remove('pulse');p.cont.textContent='▶ Start';p.stat.textContent='beat 1/6';p.out.textContent='';
+  p.cont.disabled=false;p.cont.classList.remove('pulse');p.cont.textContent='▶ Begin';p.stat.textContent='phase 1/6';p.out.textContent='';
   BEATS.forEach((b,i)=>{document.getElementById('beat-'+i).classList.remove('on','done');});}
 
 players.forEach(p=>{
@@ -234,12 +234,12 @@ players.forEach(p=>{
 });
 document.getElementById('playBtn').onclick=()=>{
   globalPlay=true;
-  document.getElementById('playBtn').disabled=true;document.getElementById('playBtn').textContent='▶ Playing…';
+  document.getElementById('playBtn').disabled=true;document.getElementById('playBtn').textContent='▶ Running…';
   startTimer();
   players.forEach(p=>{ if(p.paused&&!p.done) startCol(p); });
 };
 document.getElementById('resetBtn').onclick=()=>{
-  globalPlay=false;document.getElementById('playBtn').disabled=false;document.getElementById('playBtn').textContent='▶ Play All';
+  globalPlay=false;document.getElementById('playBtn').disabled=false;document.getElementById('playBtn').textContent='▶ Run all';
   stopTimer();players.forEach(resetCol);
 };
 document.getElementById('speedSel').onchange=()=>{speed=parseFloat(document.getElementById('speedSel').value);};

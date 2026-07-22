@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>odoo-synth — Act 1: The Pipeline (real run)</title>
+<title>odoo-synth — Environment Pipeline</title>
 <style>
   :root{
     --bg:#0b0f17; --panel:#121826; --panel2:#1a2236; --ink:#e6ebf5; --mut:#8b97b4;
@@ -81,9 +81,9 @@
 <div class="stage">
   <header>
     <h1>odoo-synth</h1>
-    <span class="pill">ACT 1 · THE PIPELINE</span>
-    <span class="real">▶ REAL RUN LOGS</span>
-    <span class="sub">Prod DB → masked dump → provenance-baked image → ready</span>
+    <span class="pill">ENVIRONMENT PIPELINE</span>
+    <span class="real">REAL RUN LOGS</span>
+    <span class="sub">Production database → masked dump → provenance-baked image → ready</span>
     <div class="controls">
       <div class="progress"><div class="bar"><div class="fill" id="fill"></div></div><span id="pct">0%</span></div>
       <select class="btn" id="speedSel" title="playback speed">
@@ -92,8 +92,8 @@
         <option value="0.6">0.6× talk</option>
       </select>
       <button class="btn" id="resetBtn">↺ Reset</button>
-      <button class="btn go" id="playBtn">▶ Play</button>
-      <button class="btn" id="contBtn" style="display:none">▼ Continue ▼</button>
+      <button class="btn go" id="playBtn">▶ Run</button>
+      <button class="btn" id="contBtn" style="display:none">▼ Advance ▼</button>
     </div>
   </header>
 
@@ -132,12 +132,12 @@
           <div class="check">✓</div><div class="n">5</div><h3>Ready</h3>
           <div class="cmd">odoo-synth env create --profile-id &lt;id&gt; --issue &lt;ref&gt;</div>
           <ul><li>Coder workspace from ECR image + dump</li><li>Addons repo live-mounted</li><li>Odoo ready @ :18069</li></ul>
-          <div class="out">→ <b>dev workspace</b> (per issue) · <span class="tag live">LIVE in Act 2</span></div>
+          <div class="out">→ <b>developer workspace</b> (per issue) · <span class="tag live">used by the agent layer</span></div>
         </div>
       </div>
       <div class="tag-row">
         <span class="tag"><b>Act 1</b> real run logs · replayed</span>
-        <span class="tag live"><b>Act 2</b> live · 3 issues · 3 agents in parallel</span>
+        <span class="tag live"><b>Agent layer</b> · 3 issues · 3 agents in parallel</span>
         <span class="tag">Profile: IRS Donation (prof_749c8a90) · Odoo 17.0</span>
         <span class="tag">Source: isha_donation@52.66.186.162 via bastion</span>
       </div>
@@ -173,8 +173,8 @@ const STAGES = [
           "[info] starting Odoo on 127.0.0.1:18069 ...",
           "[ok] workspace ready · Odoo answers HTTP · code-server + agent baked in",
           "",
-          "[warn] ══ Act 1 complete: provenance-baked image + masked dump, ready to stamp ══",
-          "[warn]    Act 2 → 3 issues · 3 workspaces · 3 agents · in parallel · LIVE"] },
+          "[warn] ══ pipeline complete: provenance-baked image + masked dump, ready to stamp ══",
+          "[warn]    agent layer → 3 issues · 3 workspaces · 3 agents · in parallel"] },
 ];
 
 const term=document.getElementById('term'), fill=document.getElementById('fill'), pct=document.getElementById('pct');
@@ -206,7 +206,7 @@ function printLine(txt){
 let curEl=null,curTxt='';
 function showCont(on){
   contBtn.style.display=on?'':'none';
-  contBtn.textContent = stage<STAGES.length-1 ? '▼ Continue to '+STAGES[stage+1].name+' ▼' : '▼ Finish ▼';
+  contBtn.textContent = stage<STAGES.length-1 ? '▼ Advance to '+STAGES[stage+1].name+' ▼' : '▼ Complete ▼';
 }
 function pauseAfterStage(){
   paused=true;playBtn.disabled=true;playBtn.textContent='⏸ Paused';
@@ -214,7 +214,7 @@ function pauseAfterStage(){
   steps[stage]&&steps[stage].classList.replace('active','done');
   printLine('');
   const d=document.createElement('div');d.className='line';d.style.marginTop='4px';
-  d.innerHTML='<span class="mut">▍ stage '+(stage+1)+' of '+STAGES.length+' complete — click Continue when ready</span>';
+  d.innerHTML='<span class="mut">▍ stage '+(stage+1)+' of '+STAGES.length+' complete — click Advance when ready</span>';
   term.appendChild(d);term.scrollTop=term.scrollHeight;
   showCont(true);
 }
@@ -245,25 +245,25 @@ function typeChar(){
     term.scrollTop=term.scrollHeight;timer=setTimeout(typeChar,16*speed);
   }
 }
-function start(){if(done)reset();paused=false;playBtn.disabled=true;playBtn.textContent='▶ Playing…';contBtn.style.display='none';setStep(0);tick();}
+function start(){if(done)reset();paused=false;playBtn.disabled=true;playBtn.textContent='▶ Running…';contBtn.style.display='none';setStep(0);tick();}
 function continueNext(){
   if(done)return;
-  paused=false;contBtn.style.display='none';playBtn.disabled=true;playBtn.textContent='▶ Playing…';
+  paused=false;contBtn.style.display='none';playBtn.disabled=true;playBtn.textContent='▶ Running…';
   stage++;li=0;
   if(stage>=STAGES.length){finish();return;}
   setStep(stage);tick();
 }
 function finish(){
-  done=true;playBtn.disabled=false;playBtn.textContent='↺ Replay';contBtn.style.display='none';
+  done=true;playBtn.disabled=false;playBtn.textContent='↺ Run again';contBtn.style.display='none';
   fill.style.width='100%';pct.textContent='100%';
   steps.forEach(el=>{el.classList.remove('active');el.classList.add('done');});
   const d=document.createElement('div');d.className='line';d.style.marginTop='8px';
-  d.innerHTML='<span class="ok">▍ ready for Act 2 — hand off to the live role-play</span>';
+  d.innerHTML='<span class="ok">▍ pipeline complete — environment ready for the agent layer</span>';
   term.appendChild(d);term.scrollTop=term.scrollHeight;
 }
 function reset(){clearTimeout(timer);term.innerHTML='';stage=0;li=0;typing=false;done=false;paused=false;window._cc=0;
   steps.forEach(el=>el.classList.remove('active','done'));fill.style.width='0%';pct.textContent='0%';
-  playBtn.disabled=false;playBtn.textContent='▶ Play';contBtn.style.display='none';}
+  playBtn.disabled=false;playBtn.textContent='▶ Run';contBtn.style.display='none';}
 playBtn.onclick=start;contBtn.onclick=continueNext;resetBtn.onclick=reset;
 speedSel.onchange=()=>{speed=parseFloat(speedSel.value);};
 </script>

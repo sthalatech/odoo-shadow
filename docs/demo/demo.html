@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>odoo-synth — The Demo (Act 1 → Act 2)</title>
+<title>odoo-synth — Technical Walkthrough</title>
 <style>
   :root{
     --bg:#0b0f17; --panel:#121826; --panel2:#1a2236; --ink:#e6ebf5; --mut:#8b97b4;
@@ -19,14 +19,14 @@
     border-bottom:1px solid var(--line);flex:0 0 auto}
   .brand{font-size:18px;font-weight:800;letter-spacing:-.3px}
   .brand .o{color:var(--acc2)}
-  .actrail{display:flex;align-items:center;gap:0;margin-left:6px}
-  .act{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--mut);padding:4px 10px;cursor:pointer;border-radius:7px;transition:.2s}
-  .act:hover{background:var(--panel2);color:var(--ink)}
-  .act.on{color:var(--ink)}
-  .act .n{width:20px;height:20px;border-radius:5px;background:var(--panel2);border:1px solid var(--line);font-size:11px;font-weight:800;text-align:center;line-height:18px;color:var(--mut)}
-  .act.on .n{background:var(--acc);color:#0b0f17;border-color:var(--acc)}
-  .act.done .n{background:var(--acc2);color:#0b0f17;border-color:var(--acc2)}
-  .act .arr{color:var(--line);margin:0 4px}
+  .navrail{display:flex;align-items:center;gap:0;margin-left:6px}
+  .navitem{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--mut);padding:4px 10px;cursor:pointer;border-radius:7px;transition:.2s}
+  .navitem:hover{background:var(--panel2);color:var(--ink)}
+  .navitem.on{color:var(--ink)}
+  .navitem .n{width:20px;height:20px;border-radius:5px;background:var(--panel2);border:1px solid var(--line);font-size:11px;font-weight:800;text-align:center;line-height:18px;color:var(--mut)}
+  .navitem.on .n{background:var(--acc);color:#0b0f17;border-color:var(--acc)}
+  .navitem.done .n{background:var(--acc2);color:#0b0f17;border-color:var(--acc2)}
+  .navitem .arr{color:var(--line);margin:0 4px}
   .spacer{flex:1}
   .kbd{font-size:11px;color:var(--mut);font-family:ui-monospace,Menlo,monospace}
   .kbd b{color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:1px 6px}
@@ -40,28 +40,28 @@
   .pane{position:absolute;inset:0;opacity:0;pointer-events:none;transition:opacity .5s;display:flex;flex-direction:column}
   .pane.on{opacity:1;pointer-events:auto}
 
-  /* Act 0 hook */
-  .hook{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:0 40px}
-  .hook .kicker{font-size:12px;letter-spacing:3px;color:var(--acc2);font-weight:800;margin-bottom:18px;text-transform:uppercase}
-  .hook h1{font-size:46px;margin:0 0 10px;letter-spacing:-1px;line-height:1.05;font-weight:800}
-  .hook h1 .grad{background:linear-gradient(90deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;color:transparent}
-  .hook .lede{font-size:18px;color:var(--mut);max-width:680px;margin:6px auto 0;line-height:1.5}
-  .hook .stats{display:flex;gap:38px;margin-top:40px}
-  .hook .stat{text-align:center}
-  .hook .stat .big{font-size:38px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
-  .hook .stat .lbl{font-size:12px;color:var(--mut);margin-top:2px;letter-spacing:.5px}
-  .hook .start{margin-top:44px}
+  /* overview */
+  .overview{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:0 40px}
+  .overview .kicker{font-size:12px;letter-spacing:3px;color:var(--acc2);font-weight:800;margin-bottom:18px;text-transform:uppercase}
+  .overview h1{font-size:42px;margin:0 0 10px;letter-spacing:-1px;line-height:1.05;font-weight:800}
+  .overview h1 .grad{background:linear-gradient(90deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .overview .lede{font-size:17px;color:var(--mut);max-width:680px;margin:6px auto 0;line-height:1.55}
+  .overview .stats{display:flex;gap:38px;margin-top:38px}
+  .overview .stat{text-align:center}
+  .overview .stat .big{font-size:36px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+  .overview .stat .lbl{font-size:11px;color:var(--mut);margin-top:2px;letter-spacing:.6px;text-transform:uppercase}
+  .overview .start{margin-top:40px}
 
-  /* bridge slide between acts */
-  .bridge{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:0 40px}
-  .bridge .kicker{font-size:12px;letter-spacing:3px;color:var(--acc2);font-weight:800;margin-bottom:14px}
-  .bridge h2{font-size:34px;margin:0 0 16px;letter-spacing:-.5px;font-weight:800;max-width:760px}
-  .bridge .flow{display:flex;align-items:center;gap:14px;margin:22px 0 10px;flex-wrap:wrap;justify-content:center}
-  .bridge .chip{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 18px;font-size:14px;min-width:150px}
-  .bridge .chip b{display:block;font-size:15px;color:var(--ink)}
-  .bridge .chip span{color:var(--mut);font-size:12px}
-  .bridge .charr{color:var(--acc2);font-size:22px;font-weight:800}
-  .bridge .next{margin-top:30px}
+  /* transition slide between sections */
+  .transition{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:0 40px}
+  .transition .kicker{font-size:12px;letter-spacing:3px;color:var(--acc2);font-weight:800;margin-bottom:14px}
+  .transition h2{font-size:30px;margin:0 0 16px;letter-spacing:-.5px;font-weight:800;max-width:760px}
+  .transition .flow{display:flex;align-items:center;gap:14px;margin:22px 0 10px;flex-wrap:wrap;justify-content:center}
+  .transition .chip{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 18px;font-size:14px;min-width:150px}
+  .transition .chip b{display:block;font-size:15px;color:var(--ink)}
+  .transition .chip span{color:var(--mut);font-size:12px}
+  .transition .charr{color:var(--acc2);font-size:22px;font-weight:800}
+  .transition .next{margin-top:28px}
 
   iframe{flex:1;border:0;width:100%;background:var(--bg)}
 
@@ -73,99 +73,98 @@
 <div class="shell">
   <div class="deck">
     <div class="brand"><span class="o">odoo</span>-synth</div>
-    <div class="actrail">
-      <div class="act on" id="act-0"><span class="n">0</span>Hook</div>
+    <div class="navrail">
+      <div class="navitem on" id="nav-0"><span class="n">1</span>Overview</div>
       <span class="arr">›</span>
-      <div class="act" id="act-1"><span class="n">1</span>The Pipeline</div>
+      <div class="navitem" id="nav-1"><span class="n">2</span>Environment Pipeline</div>
       <span class="arr">›</span>
-      <div class="act" id="act-2"><span class="n">2</span>3 Agents Live</div>
+      <div class="navitem" id="nav-2"><span class="n">3</span>Autonomous Agents</div>
     </div>
     <div class="spacer"></div>
-    <span class="kbd">keys: <b>1</b> <b>2</b> <b>0</b> · <b>→</b> next</span>
-    <button class="btn go" id="topNext">▶ Begin ▼</button>
+    <span class="kbd">keys: <b>1</b> <b>2</b> <b>3</b> · <b>→</b> next</span>
+    <button class="btn go" id="topNext">Start ▶</button>
   </div>
 
   <div class="stage">
-    <!-- Act 0: hook -->
+    <!-- 1: overview -->
     <div class="pane on" id="pane-0">
-      <div class="hook">
-        <div class="kicker">From a production Odoo DB to a self-fixing PR — autonomously</div>
-        <h1>One bug, <span class="grad">three agents</span>,<br>no queue.</h1>
-        <p class="lede">odoo-synth stamps a masked copy of your production database into an isolated
-          dev workspace the instant a GitHub issue is filed — then an AI agent reads the bug,
-          explores your real code, writes the fix, and opens the PR. Three at once.</p>
+      <div class="overview">
+        <div class="kicker">From a production Odoo database to a self-authored pull request</div>
+        <h1>One issue, <span class="grad">three agents</span>,<br>no manual setup.</h1>
+        <p class="lede">odoo-synth stamps a masked copy of a production database into an isolated
+          developer workspace the moment a GitHub issue is filed — then an autonomous agent reads
+          the report, explores the codebase, implements the fix, and opens the pull request.
+          Three concurrently.</p>
         <div class="stats">
-          <div class="stat"><div class="big">1</div><div class="lbl">MASKED PROD DB</div></div>
-          <div class="stat"><div class="big">3</div><div class="lbl">ISSUES IN PARALLEL</div></div>
-          <div class="stat"><div class="big">0</div><div class="lbl">HANDS-ON MINUTES</div></div>
-          <div class="stat"><div class="big">PR</div><div class="lbl">OPENED BY THE AGENT</div></div>
+          <div class="stat"><div class="big">1</div><div class="lbl">Masked prod DB</div></div>
+          <div class="stat"><div class="big">3</div><div class="lbl">Issues in parallel</div></div>
+          <div class="stat"><div class="big">0</div><div class="lbl">Manual steps</div></div>
+          <div class="stat"><div class="big">PR</div><div class="lbl">Agent-authored</div></div>
         </div>
-        <button class="btn go" id="hookNext" style="margin-top:44px;font-size:16px;padding:12px 26px">▶ Act 1 — The Pipeline ▼</button>
+        <button class="btn go" id="ovNext" style="margin-top:40px;font-size:15px;padding:11px 24px">Environment Pipeline ▶</button>
       </div>
     </div>
 
-    <!-- Act 1: the pipeline -->
+    <!-- 2: environment pipeline -->
     <div class="pane" id="pane-1">
       <iframe id="frame1" src="act1.html"></iframe>
     </div>
 
-    <!-- Bridge -->
+    <!-- transition -->
     <div class="pane" id="pane-1b">
-      <div class="bridge">
-        <div class="kicker">Act 1 built one ready workspace. Act 2 does it three times — at once.</div>
-        <h2>Now: three issues walk in. Three workspaces come up. Three agents go to work.</h2>
+      <div class="transition">
+        <div class="kicker">The pipeline produces one ready workspace. The agent layer runs three at once.</div>
+        <h2>One GitHub issue spins up one isolated workspace, then one agent goes to work.</h2>
         <div class="flow">
-          <div class="chip"><b>GitHub issue</b><span>opened by the PM</span></div>
+          <div class="chip"><b>GitHub issue</b><span>filed by a developer</span></div>
           <span class="charr">→</span>
-          <div class="chip"><b>webhook</b><span>matches a profile</span></div>
+          <div class="chip"><b>Webhook</b><span>matches a profile</span></div>
           <span class="charr">→</span>
           <div class="chip"><b>Coder workspace</b><span>masked DB + repo</span></div>
           <span class="charr">→</span>
-          <div class="chip"><b>opencode agent</b><span>explores → fixes → PR</span></div>
+          <div class="chip"><b>Agent session</b><span>explore → fix → PR</span></div>
         </div>
-        <button class="btn go" id="bridgeNext" style="margin-top:34px;font-size:16px;padding:12px 26px">▶ Act 2 — 3 Agents Live ▼</button>
+        <button class="btn go" id="trNext" style="margin-top:30px;font-size:15px;padding:11px 24px">Autonomous Agents ▶</button>
       </div>
     </div>
 
-    <!-- Act 2: 3 agents -->
+    <!-- 3: autonomous agents -->
     <div class="pane" id="pane-2">
       <iframe id="frame2" src="act2.html"></iframe>
     </div>
   </div>
 
   <div class="hintbar">
-    <span><b>Act 1</b>: real pipeline logs (discover · build · mask) + live env at the end</span>
-    <span><b>Act 2</b>: real opencode sessions replayed · 3 columns · role-play volunteers</span>
-    <span style="margin-left:auto">▶ REAL RUN · no merge shown</span>
+    <span><b>Pipeline</b>: captured run logs (discover · build · mask) + live environment creation</span>
+    <span><b>Agents</b>: real session transcripts · 3 concurrent workspaces</span>
+    <span style="margin-left:auto">Real run data · no merge performed</span>
   </div>
 </div>
 
 <script>
 const ORDER=["pane-0","pane-1","pane-1b","pane-2"];
 let idx=0;
-const acts=[document.getElementById('act-0'),document.getElementById('act-1'),document.getElementById('act-2')];
-function actOf(i){ return i<=0?0 : (i===1?1 : 2); } // map pane idx -> act rail index (1b counts as act1)
+const navs=[document.getElementById('nav-0'),document.getElementById('nav-1'),document.getElementById('nav-2')];
 function show(i){
   idx=Math.max(0,Math.min(ORDER.length-1,i));
   ORDER.forEach((id,n)=>document.getElementById(id).classList.toggle('on',n===idx));
-  // act rail: act0 -> hook; act1 -> pane1 & 1b; act2 -> pane2
-  const a=idx===0?0:(idx===3?2:1);
-  acts.forEach((el,n)=>{el.classList.toggle('on',n===a);el.classList.toggle('done',n<a);});
+  const n=idx===0?0:(idx===3?2:1);
+  navs.forEach((el,k)=>{el.classList.toggle('on',k===n);el.classList.toggle('done',k<n);});
   const top=document.getElementById('topNext');
-  if(idx>=ORDER.length-1){top.textContent='↺ Replay';top.classList.remove('go');}
-  else {top.textContent='▼ Next ▼';top.classList.add('go');}
+  if(idx>=ORDER.length-1){top.textContent='↺ Restart';top.classList.remove('go');}
+  else {top.textContent='Next ▶';top.classList.add('go');}
 }
 function next(){ if(idx>=ORDER.length-1){show(0);} else show(idx+1); }
 document.getElementById('topNext').onclick=next;
-document.getElementById('hookNext').onclick=()=>show(1);
-document.getElementById('bridgeNext').onclick=()=>show(3);
-acts[0].onclick=()=>show(0);
-acts[1].onclick=()=>show(1);
-acts[2].onclick=()=>show(3);
+document.getElementById('ovNext').onclick=()=>show(1);
+document.getElementById('trNext').onclick=()=>show(3);
+navs[0].onclick=()=>show(0);
+navs[1].onclick=()=>show(1);
+navs[2].onclick=()=>show(3);
 document.addEventListener('keydown',e=>{
-  if(e.key==='1')show(1);
-  else if(e.key==='2')show(3);
-  else if(e.key==='0')show(0);
+  if(e.key==='1')show(0);
+  else if(e.key==='2')show(1);
+  else if(e.key==='3')show(3);
   else if(e.key==='ArrowRight')next();
 });
 show(0);
