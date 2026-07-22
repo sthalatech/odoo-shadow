@@ -33,7 +33,7 @@
   .main{flex:1;display:grid;grid-template-rows:1fr 1.25fr;gap:12px;min-height:0}
   .diagram{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 14px;overflow:auto}
   .flow{display:grid;grid-template-columns:repeat(5,1fr);gap:0;align-items:stretch;height:100%}
-  .step{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:14px 16px;position:relative;display:flex;flex-direction:column;transition:all .35s;opacity:.4}
+  .step{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:14px 16px;position:relative;display:flex;flex-direction:column;transition:all .35s;opacity:.66}
   .step.active{opacity:1;border-color:var(--acc);box-shadow:0 0 0 1px var(--acc),0 8px 30px -8px rgba(91,140,255,.4);transform:translateY(-2px)}
   .step.done{opacity:.7;border-color:var(--acc2)}
   .step:not(:last-child){margin-right:10px}
@@ -41,14 +41,14 @@
   .arrow::after{content:"";position:absolute;right:-2px;top:-4px;border:5px solid transparent;border-left-color:var(--line)}
   .step.done+.arrow,.step.active+.arrow{background:var(--acc2)}
   .step.done+.arrow::after,.step.active+.arrow::after{border-left-color:var(--acc2)}
-  .step .n{width:22px;height:22px;border-radius:6px;background:var(--panel);border:1px solid var(--line);color:var(--mut);font-size:12px;font-weight:800;text-align:center;line-height:20px;margin-bottom:7px}
+  .step .n{width:22px;height:22px;border-radius:6px;background:var(--panel);border:1px solid var(--line);color:#c2cae0;font-size:12px;font-weight:800;text-align:center;line-height:20px;margin-bottom:7px}
   .step.active .n{background:var(--acc);color:#0b0f17;border-color:var(--acc)}
   .step.done .n{background:var(--acc2);color:#0b0f17;border-color:var(--acc2)}
-  .step h3{margin:0 0 7px;font-size:15px}
+  .step h3{margin:0 0 7px;font-size:15px;color:var(--ink)}
   .step .cmd{font-family:ui-monospace,Menlo,monospace;font-size:11.4px;color:var(--acc2);background:var(--term);border:1px solid var(--line);padding:5px 8px;border-radius:6px;margin-bottom:8px;word-break:break-all}
-  .step ul{margin:0;padding-left:16px;color:var(--mut);font-size:12.4px}
+  .step ul{margin:0;padding-left:16px;color:#c2cae0;font-size:12.4px}
   .step ul li{margin:2px 0}
-  .step .out{margin-top:auto;padding-top:8px;font-size:12px;color:var(--ink)}
+  .step .out{margin-top:auto;padding-top:8px;font-size:12px;color:#dfe5f3}
   .step .out b{color:var(--acc)}
   .step .check{position:absolute;top:9px;right:11px;color:var(--acc2);font-size:15px;opacity:0;transition:opacity .3s}
   .step.done .check{opacity:1}
