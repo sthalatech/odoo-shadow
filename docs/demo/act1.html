@@ -79,24 +79,6 @@
 </head>
 <body>
 <div class="stage">
-  <header>
-    <h1>odoo-synth</h1>
-    <span class="pill">ENVIRONMENT PIPELINE</span>
-    <span class="real">REAL RUN LOGS</span>
-    <span class="sub">Production database → masked dump → provenance-baked image → ready</span>
-    <div class="controls">
-      <div class="progress"><div class="bar"><div class="fill" id="fill"></div></div><span id="pct">0%</span></div>
-      <select class="btn" id="speedSel" title="playback speed">
-        <option value="1.6">1.6× slow</option>
-        <option value="1" selected>1× normal</option>
-        <option value="0.6">0.6× talk</option>
-      </select>
-      <button class="btn" id="resetBtn">↺ Reset</button>
-      <button class="btn go" id="playBtn">▶ Run</button>
-      <button class="btn" id="contBtn" style="display:none">▼ Advance ▼</button>
-    </div>
-  </header>
-
   <div class="main">
     <div class="diagram">
       <div class="flow" id="flow">
@@ -175,10 +157,14 @@ const STAGES = [
           "[warn]    agent layer → 3 issues · 3 workspaces · 3 agents · in parallel"] },
 ];
 
-const term=document.getElementById('term'), fill=document.getElementById('fill'), pct=document.getElementById('pct');
-const playBtn=document.getElementById('playBtn'), resetBtn=document.getElementById('resetBtn'), speedSel=document.getElementById('speedSel'), contBtn=document.getElementById('contBtn');
+const term=document.getElementById('term');
+// Controls live in the parent shell now; stub the removed elements so the
+// existing state machine doesn't throw. The parent reads state via actAPI.
+const _stub={style:{},textContent:'',disabled:false,value:'1',classList:{add:()=>{},remove:()=>{},contains:()=>false}};
+const fill=_stub, pct=_stub, playBtn=_stub, resetBtn=_stub, speedSel=_stub, contBtn=_stub;
+let onState=null;  // parent sets this to mirror state into the shell controls
 const steps=[...document.querySelectorAll('.step')];
-let timer=null,stage=0,li=0,typing=false,done=false,paused=false,speed=1;
+let timer=null,stage=0,li=0,typing=false,done=false,paused=false,started=false,speed=1;
 
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function clsFor(line){
@@ -190,6 +176,7 @@ function clsFor(line){
   if(line.startsWith('[info]'))return 'info';
   return 'mut';
 }
+function notifyState(){ const cb=(window.actAPI&&window.actAPI.onState)||onState; if(cb) cb(window.actAPI.state()); }
 function setStep(i){
   steps.forEach((el,idx)=>{el.classList.remove('active','done');if(idx<i)el.classList.add('done');else if(idx===i)el.classList.add('active');});
   const pv=Math.round(Math.min(1,(i+(li>0?0.5:0))/STAGES.length)*100);
@@ -214,7 +201,7 @@ function pauseAfterStage(){
   const d=document.createElement('div');d.className='line';d.style.marginTop='4px';
   d.innerHTML='<span class="mut">▍ stage '+(stage+1)+' of '+STAGES.length+' complete — click Advance when ready</span>';
   term.appendChild(d);term.scrollTop=term.scrollHeight;
-  showCont(true);
+  showCont(true);notifyState();
 }
 function tick(){
   if(done||paused)return;
@@ -243,7 +230,7 @@ function typeChar(){
     term.scrollTop=term.scrollHeight;timer=setTimeout(typeChar,16*speed);
   }
 }
-function start(){if(done)reset();paused=false;playBtn.disabled=true;playBtn.textContent='▶ Running…';contBtn.style.display='none';setStep(0);tick();}
+function start(){if(done)reset();started=true;paused=false;notifyState();playBtn.disabled=true;playBtn.textContent='▶ Running…';contBtn.style.display='none';setStep(0);tick();}
 function continueNext(){
   if(done)return;
   paused=false;contBtn.style.display='none';playBtn.disabled=true;playBtn.textContent='▶ Running…';
@@ -254,16 +241,24 @@ function continueNext(){
 function finish(){
   done=true;playBtn.disabled=false;playBtn.textContent='↺ Run again';contBtn.style.display='none';
   fill.style.width='100%';pct.textContent='100%';
+  notifyState();
   steps.forEach(el=>{el.classList.remove('active');el.classList.add('done');});
   const d=document.createElement('div');d.className='line';d.style.marginTop='8px';
   d.innerHTML='<span class="ok">▍ pipeline complete — environment ready for the agent layer</span>';
   term.appendChild(d);term.scrollTop=term.scrollHeight;
 }
-function reset(){clearTimeout(timer);term.innerHTML='';stage=0;li=0;typing=false;done=false;paused=false;window._cc=0;
+function reset(){clearTimeout(timer);term.innerHTML='';stage=0;li=0;typing=false;done=false;paused=false;started=false;window._cc=0;
   steps.forEach(el=>el.classList.remove('active','done'));fill.style.width='0%';pct.textContent='0%';
-  playBtn.disabled=false;playBtn.textContent='▶ Run';contBtn.style.display='none';}
-playBtn.onclick=start;contBtn.onclick=continueNext;resetBtn.onclick=reset;
-speedSel.onchange=()=>{speed=parseFloat(speedSel.value);};
+  playBtn.disabled=false;playBtn.textContent='▶ Run';contBtn.style.display='none';notifyState();}
+// Expose a control API for the parent shell (controls live in the parent header).
+window.actAPI = {
+  kind: 'pipeline',
+  run: start,
+  advance: continueNext,
+  reset: reset,
+  setSpeed: (v)=>{ speed = parseFloat(v); },
+  state: ()=>({ stage, done, paused, started, total: STAGES.length })
+};
 </script>
 </body>
 </html>

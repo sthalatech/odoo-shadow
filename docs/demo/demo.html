@@ -35,6 +35,21 @@
   .btn.go{background:var(--acc2);color:#0b0f17;border-color:var(--acc2);animation:pulse 1.4s ease-in-out infinite}
   @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(34,193,163,.5)}50%{box-shadow:0 0 0 8px rgba(34,193,163,0)}}
 
+  /* playback controls (drive whichever act is visible) */
+  .ctrls{display:flex;align-items:center;gap:8px;margin-left:auto}
+  .progress{display:flex;gap:6px;align-items:center}
+  .progress .bar{width:130px;height:6px;background:var(--panel2);border-radius:4px;overflow:hidden;border:1px solid var(--line)}
+  .progress .pfill{height:100%;width:0;background:linear-gradient(90deg,var(--acc),var(--acc2));transition:width .3s}
+  .progress span{font-size:11px;color:var(--mut);font-variant-numeric:tabular-nums;min-width:34px}
+  .timer{font-size:13px;font-weight:800;color:var(--acc2);font-variant-numeric:tabular-nums;min-width:46px}
+  .cbtn{background:var(--panel2);border:1px solid var(--line);color:var(--ink);font-size:12.5px;padding:6px 12px;border-radius:8px;cursor:pointer;font-weight:600}
+  .cbtn:hover{border-color:var(--acc)}
+  .cbtn:disabled{opacity:.4;cursor:default}
+  .cbtn.go{background:var(--acc2);color:#0b0f17;border-color:var(--acc2)}
+  .cbtn.go.pulse{animation:pulse 1.4s ease-in-out infinite}
+  select.cbtn{padding:5px 7px}
+  .ctrls.hidden{visibility:hidden}
+
   /* stage area: only one pane visible at a time */
   .stage{flex:1;position:relative;min-height:0}
   .pane{position:absolute;inset:0;opacity:0;pointer-events:none;transition:opacity .5s;display:flex;flex-direction:column}
@@ -105,6 +120,18 @@
     </div>
     <div class="spacer"></div>
     <span class="kbd">keys: <b>1</b> <b>2</b> <b>3</b> <b>4</b> · <b>→</b> next</span>
+    <div class="ctrls hidden" id="ctrls">
+      <div class="progress" id="prog"><div class="bar"><div class="pfill" id="pfill"></div></div><span id="ppct">0%</span></div>
+      <span class="timer" id="ptimer" style="display:none">00:00</span>
+      <select class="cbtn" id="pspeed" title="playback speed">
+        <option value="1.6">1.6×</option>
+        <option value="1" selected>1×</option>
+        <option value="0.6">0.6×</option>
+      </select>
+      <button class="cbtn" id="pReset">↺ Reset</button>
+      <button class="cbtn" id="pAdvance" style="display:none">▼ Advance</button>
+      <button class="cbtn go" id="pRun">▶ Run</button>
+    </div>
     <button class="btn go" id="topNext">Start ▶</button>
   </div>
 
@@ -214,6 +241,52 @@
 const ORDER=["pane-0","pane-1","pane-1b","pane-2","pane-3"];
 let idx=0;
 const navs=[document.getElementById('nav-0'),document.getElementById('nav-1'),document.getElementById('nav-2'),document.getElementById('nav-3')];
+const ctrls=document.getElementById('ctrls');
+const pRun=document.getElementById('pRun'),pAdv=document.getElementById('pAdvance'),
+      pReset=document.getElementById('pReset'),pSpeed=document.getElementById('pspeed'),
+      pfill=document.getElementById('pfill'),ppct=document.getElementById('ppct'),
+      ptimer=document.getElementById('ptimer');
+let curAPI=null;   // actAPI of the currently-visible act iframe
+
+function activeFrameId(){ return idx===1?'frame1':(idx===3?'frame2':null); }
+
+function attachControls(){
+  const fid=activeFrameId();
+  if(!fid){ ctrls.classList.add('hidden'); curAPI=null; syncCtrlUI(null); return; }
+  const fw=document.getElementById(fid).contentWindow;
+  curAPI = fw && fw.actAPI ? fw.actAPI : null;
+  ctrls.classList.toggle('hidden', !curAPI);
+  if(curAPI){
+    // mirror iframe speed -> parent select (and keep parent in sync)
+    curAPI.setSpeed(pSpeed.value);
+    if(curAPI.kind==='agents'){ ptimer.style.display=''; curAPI.onTimer=t=>ptimer.textContent=t; }
+    else { ptimer.style.display='none'; }
+    curAPI.onState = (st)=>syncCtrlUI(st);
+    syncCtrlUI(curAPI.state());
+  }
+}
+
+function syncCtrlUI(st){
+  if(!curAPI){ pRun.style.display='none'; pAdv.style.display='none'; pReset.style.display='none'; pSpeed.style.display='none'; return; }
+  pSpeed.style.display=''; pReset.style.display='';
+  if(curAPI.kind==='pipeline'){
+    pAdv.style.display='';  // advance only meaningful for pipeline pauses
+    if(!st){ pRun.textContent='▶ Run'; pRun.classList.add('pulse'); pAdv.classList.remove('pulse'); pAdv.disabled=true; pfill.style.width='0';ppct.textContent='0%'; return; }
+    const pct=Math.round(Math.min(1,(st.stage+(st.paused?1:0.5))/st.total)*100);
+    pfill.style.width=pct+'%'; ppct.textContent=pct+'%';
+    if(st.done){ pRun.textContent='↺ Run again'; pRun.classList.remove('pulse'); pRun.classList.add('go'); pRun.disabled=false; pAdv.disabled=true; pAdv.classList.remove('pulse'); pAdv.textContent='✓ complete'; }
+    else if(!st.started){ pRun.textContent='▶ Run'; pRun.classList.add('pulse','go'); pRun.disabled=false; pAdv.disabled=true; pAdv.classList.remove('pulse'); pAdv.textContent='▼ Advance'; }
+    else if(st.paused){ pRun.textContent='▶ Running…'; pRun.classList.remove('pulse','go'); pRun.disabled=true; pAdv.disabled=false; pAdv.classList.add('pulse'); pAdv.textContent='▼ Advance to next stage'; }
+    else { pRun.textContent='▶ Running…'; pRun.disabled=true; pAdv.disabled=true; pAdv.classList.remove('pulse'); }
+  } else { // agents
+    pAdv.style.display='none';
+    if(!st){ pRun.textContent='▶ Run all'; pRun.classList.add('pulse'); return; }
+    if(st.done){ pRun.textContent='↺ Run again'; pRun.classList.remove('pulse'); pRun.classList.add('go'); pRun.disabled=false; }
+    else if(st.running){ pRun.textContent='▶ Running…'; pRun.disabled=true; pRun.classList.remove('pulse'); }
+    else { pRun.textContent='▶ Run all'; pRun.classList.add('pulse'); pRun.disabled=false; }
+  }
+}
+
 function show(i){
   idx=Math.max(0,Math.min(ORDER.length-1,i));
   ORDER.forEach((id,n)=>document.getElementById(id).classList.toggle('on',n===idx));
@@ -222,8 +295,15 @@ function show(i){
   const top=document.getElementById('topNext');
   if(idx>=ORDER.length-1){top.textContent='↺ Restart';top.classList.remove('go');}
   else {top.textContent='Next ▶';top.classList.add('go');}
+  attachControls();
 }
 function next(){ if(idx>=ORDER.length-1){show(0);} else show(idx+1); }
+
+pRun.onclick=()=>{ if(curAPI) curAPI.run(); };
+pAdv.onclick=()=>{ if(curAPI&&curAPI.advance) curAPI.advance(); };
+pReset.onclick=()=>{ if(curAPI) curAPI.reset(); };
+pSpeed.onchange=()=>{ if(curAPI) curAPI.setSpeed(pSpeed.value); };
+
 document.getElementById('topNext').onclick=next;
 document.getElementById('ovNext').onclick=()=>show(1);
 document.getElementById('trNext').onclick=()=>show(3);
@@ -231,6 +311,9 @@ navs[0].onclick=()=>show(0);
 navs[1].onclick=()=>show(1);
 navs[2].onclick=()=>show(3);
 document.getElementById('closeNext').onclick=()=>show(0);
+// iframes load async: re-attach once loaded
+document.getElementById('frame1').addEventListener('load',()=>{ if(idx===1) attachControls(); });
+document.getElementById('frame2').addEventListener('load',()=>{ if(idx===3) attachControls(); });
 document.addEventListener('keydown',e=>{
   if(e.key==='1')show(0);
   else if(e.key==='2')show(1);

@@ -67,23 +67,6 @@
 </head>
 <body>
 <div class="stage">
-  <header>
-    <h1>odoo-synth</h1>
-    <span class="pill">CONCURRENT AGENT SESSIONS</span>
-    <span class="real">REAL SESSION TRANSCRIPTS</span>
-    <span class="sub">3 issues · 3 workspaces · 3 autonomous agents — reconstructed from real session history</span>
-    <div class="controls">
-      <span class="timer" id="timer">00:00</span>
-      <select class="btn" id="speedSel" title="playback speed">
-        <option value="1.6">1.6× slow</option>
-        <option value="1" selected>1×</option>
-        <option value="0.6">0.6× fast</option>
-      </select>
-      <button class="btn" id="resetBtn">↺ Reset</button>
-      <button class="btn go" id="playBtn">▶ Run all</button>
-    </div>
-  </header>
-
   <div class="rail" id="rail"></div>
 
   <div class="cols" id="cols"></div>
@@ -204,7 +187,7 @@ function finishCol(p){
     el.innerHTML='<span class="ok">'+esc(p.d.outcome)+'</span>';
     p.term.appendChild(el);p.term.scrollTop=p.term.scrollHeight;
   }
-  if(players.every(x=>x.done))stopTimer();
+  if(players.every(x=>x.done)){stopTimer();notifyState();}
 }
 function updateRail(p){
   // light up the current beat for the slowest active column
@@ -232,21 +215,33 @@ function resetCol(p){clearTimeout(p.timer);p.term.innerHTML='';p.beat=0;p.li=0;p
 players.forEach(p=>{
   p.cont.onclick=()=>{ if(p.paused&&!p.done) startCol(p); };
 });
-document.getElementById('playBtn').onclick=()=>{
+function runAll(){
   globalPlay=true;
-  document.getElementById('playBtn').disabled=true;document.getElementById('playBtn').textContent='▶ Running…';
   startTimer();
   players.forEach(p=>{ if(p.paused&&!p.done) startCol(p); });
+  notifyState();
+}
+function resetAll(){
+  globalPlay=false; stopTimer(); if(window.actAPI.onTimer) window.actAPI.onTimer('00:00');
+  players.forEach(resetCol);
+  notifyState();
+}
+window.actAPI = {
+  kind: 'agents',
+  run: runAll,
+  advance: null,           // agents pane has no single 'advance' (per-column buttons do that)
+  reset: resetAll,
+  setSpeed: (v)=>{ speed=parseFloat(v); },
+  onTimer: null,
+  state: ()=>({ running:globalPlay, done:players.every(p=>p.done), active:players.filter(p=>!p.done).length })
 };
-document.getElementById('resetBtn').onclick=()=>{
-  globalPlay=false;document.getElementById('playBtn').disabled=false;document.getElementById('playBtn').textContent='▶ Run all';
-  stopTimer();players.forEach(resetCol);
-};
-document.getElementById('speedSel').onchange=()=>{speed=parseFloat(document.getElementById('speedSel').value);};
+let onState=null;
+function notifyState(){ const cb=(window.actAPI&&window.actAPI.onState)||onState; if(cb) cb(window.actAPI.state()); }
 
 function startTimer(){if(t0)return;t0=Date.now();tInterval=setInterval(()=>{
   const s=Math.floor((Date.now()-t0)/1000);
-  document.getElementById('timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+  const mm=String(Math.floor(s/60)).padStart(2,'0'), ss=String(s%60).padStart(2,'0');
+  if(window.actAPI.onTimer) window.actAPI.onTimer(mm+':'+ss);
 },500);}
 function stopTimer(){if(tInterval){clearInterval(tInterval);tInterval=null;}}
 </script>
