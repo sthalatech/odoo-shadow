@@ -140,6 +140,10 @@ def render_line(r, beat):
         return None
     if typ == "text":
         txt = (r.get("text") or "").strip()
+        # opencode stores some text values JSON-encoded with surrounding quotes
+        if txt.startswith('"') and txt.endswith('"') and len(txt) > 1:
+            try: txt = json.loads(txt).strip()
+            except Exception: txt = txt[1:-1].strip()
         if not txt: return None
         role = (r.get("role") or "").lower()
         if role == "user" or "resolve github issue" in txt.lower()[:30]:

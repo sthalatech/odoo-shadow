@@ -14,7 +14,7 @@
     },
     {
      "cls": "prompt",
-     "text": "\"Resolve GitHub issue #502: [BUG] Google calendar resync issue Issue URL: https://github.com/IshaFoundationIT/prs-backend/issues/502  Issue body: Resyncing Goog",
+     "text": "Resolve GitHub issue #502: [BUG] Google calendar resync issue Issue URL: https://github.com/IshaFoundationIT/prs-backend/issues/502  Issue body: Resyncing Googl",
      "delay": 120
     },
     {
