@@ -63,6 +63,27 @@
   .transition .charr{color:var(--acc2);font-size:22px;font-weight:800}
   .transition .next{margin-top:28px}
 
+  /* closing: the shift */
+  .closing{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:0 40px}
+  .closing .kicker{font-size:12px;letter-spacing:3px;color:var(--acc2);font-weight:800;margin-bottom:14px;text-transform:uppercase}
+  .closing h2{font-size:30px;margin:0 0 8px;letter-spacing:-.5px;font-weight:800;max-width:820px;line-height:1.2}
+  .closing h2 .grad{background:linear-gradient(90deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .closing .lede{font-size:16px;color:var(--mut);max-width:720px;margin:10px auto 0;line-height:1.55}
+  .closing .compare{display:flex;gap:18px;margin:34px 0 6px;align-items:stretch;max-width:840px}
+  .closing .col-c{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;text-align:left}
+  .closing .col-c.old{opacity:.62}
+  .closing .col-c h3{margin:0 0 10px;font-size:14px;letter-spacing:.5px;text-transform:uppercase}
+  .closing .col-c.old h3{color:var(--mut)}
+  .closing .col-c.new h3{color:var(--acc2)}
+  .closing .col-c ul{margin:0;padding-left:16px;font-size:13.5px;line-height:1.7;color:var(--ink)}
+  .closing .col-c.old ul{color:var(--mut);text-decoration:line-through}
+  .closing .col-c.old ul li.no-strike{text-decoration:none;opacity:.7}
+  .closing .statline{display:flex;gap:34px;margin-top:30px}
+  .closing .statline .s{text-align:center}
+  .closing .statline .s .big{font-size:30px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+  .closing .statline .s .big.g{color:var(--acc2)}
+  .closing .statline .s .lbl{font-size:11px;color:var(--mut);margin-top:2px;letter-spacing:.5px;text-transform:uppercase}
+
   iframe{flex:1;border:0;width:100%;background:var(--bg)}
 
   .hintbar{flex:0 0 auto;padding:7px 18px;background:var(--panel2);border-top:1px solid var(--line);font-size:11.5px;color:var(--mut);display:flex;gap:22px;align-items:center}
@@ -79,9 +100,11 @@
       <div class="navitem" id="nav-1"><span class="n">2</span>Environment Pipeline</div>
       <span class="arr">›</span>
       <div class="navitem" id="nav-2"><span class="n">3</span>Autonomous Agents</div>
+      <span class="arr">›</span>
+      <div class="navitem" id="nav-3"><span class="n">4</span>The Shift</div>
     </div>
     <div class="spacer"></div>
-    <span class="kbd">keys: <b>1</b> <b>2</b> <b>3</b> · <b>→</b> next</span>
+    <span class="kbd">keys: <b>1</b> <b>2</b> <b>3</b> <b>4</b> · <b>→</b> next</span>
     <button class="btn go" id="topNext">Start ▶</button>
   </div>
 
@@ -137,6 +160,47 @@
     <div class="pane" id="pane-2">
       <iframe id="frame2" src="act2.html"></iframe>
     </div>
+
+    <!-- 4: the shift (closing) -->
+    <div class="pane" id="pane-3">
+      <div class="closing">
+        <div class="kicker">What this changes for the team</div>
+        <h2>Stop running standups the old way.<br><span class="grad">Curate issues &mdash; assemble to review PRs.</span></h2>
+        <p class="lede">A self-contained sandbox per issue means agents don&rsquo;t queue for an environment,
+          a database, or context. They run in parallel, and a reviewable PR lands in 45&ndash;60 minutes.
+          The standup becomes a curation, and the real meeting is the review.</p>
+        <div class="compare">
+          <div class="col-c old">
+            <h3>Old standup</h3>
+            <ul>
+              <li class="no-strike">&ldquo;What did you do yesterday?&rdquo;</li>
+              <li class="no-strike">&ldquo;What are you doing today?&rdquo;</li>
+              <li class="no-strike">&ldquo;Any blockers?&rdquo;</li>
+              <li>Wait for an environment</li>
+              <li>Hand off context, one ticket at a time</li>
+              <li>Fix, then wait for review</li>
+            </ul>
+          </div>
+          <div class="col-c new">
+            <h3>New standup</h3>
+            <ul>
+              <li>Curate the issues worth solving</li>
+              <li>File them in GitHub &mdash; the webhook spins up a sandbox per issue</li>
+              <li>Agents explore, fix, and open PRs in parallel</li>
+              <li>Assemble 45&ndash;60 min later to review the PRs</li>
+              <li>Approve, merge, close &mdash; done</li>
+            </ul>
+          </div>
+        </div>
+        <div class="statline">
+          <div class="s"><div class="big g">45&ndash;60</div><div class="lbl">Min to reviewable PR</div></div>
+          <div class="s"><div class="big g">∞</div><div class="lbl">Issues in parallel</div></div>
+          <div class="s"><div class="big">0</div><div class="lbl">Env setup minutes</div></div>
+          <div class="s"><div class="big">1</div><div class="lbl">Meeting &mdash; the review</div></div>
+        </div>
+        <button class="btn go" id="closeNext" style="margin-top:30px;font-size:15px;padding:11px 24px">↺ Restart walkthrough</button>
+      </div>
+    </div>
   </div>
 
   <div class="hintbar">
@@ -147,13 +211,13 @@
 </div>
 
 <script>
-const ORDER=["pane-0","pane-1","pane-1b","pane-2"];
+const ORDER=["pane-0","pane-1","pane-1b","pane-2","pane-3"];
 let idx=0;
-const navs=[document.getElementById('nav-0'),document.getElementById('nav-1'),document.getElementById('nav-2')];
+const navs=[document.getElementById('nav-0'),document.getElementById('nav-1'),document.getElementById('nav-2'),document.getElementById('nav-3')];
 function show(i){
   idx=Math.max(0,Math.min(ORDER.length-1,i));
   ORDER.forEach((id,n)=>document.getElementById(id).classList.toggle('on',n===idx));
-  const n=idx===0?0:(idx===3?2:1);
+  const n=idx===0?0:(idx===3?2:(idx===4?3:1));
   navs.forEach((el,k)=>{el.classList.toggle('on',k===n);el.classList.toggle('done',k<n);});
   const top=document.getElementById('topNext');
   if(idx>=ORDER.length-1){top.textContent='↺ Restart';top.classList.remove('go');}
@@ -166,10 +230,12 @@ document.getElementById('trNext').onclick=()=>show(3);
 navs[0].onclick=()=>show(0);
 navs[1].onclick=()=>show(1);
 navs[2].onclick=()=>show(3);
+document.getElementById('closeNext').onclick=()=>show(0);
 document.addEventListener('keydown',e=>{
   if(e.key==='1')show(0);
   else if(e.key==='2')show(1);
   else if(e.key==='3')show(3);
+  else if(e.key==='4')show(4);
   else if(e.key==='ArrowRight')next();
 });
 show(0);
