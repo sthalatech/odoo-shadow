@@ -89,16 +89,18 @@
     <!-- 1: overview -->
     <div class="pane on" id="pane-0">
       <div class="overview">
-        <div class="kicker">From a production Odoo database to a self-authored pull request</div>
-        <h1>One issue, <span class="grad">three agents</span>,<br>no manual setup.</h1>
-        <p class="lede">odoo-synth stamps a masked copy of a production database into an isolated
-          developer workspace the moment a GitHub issue is filed — then an autonomous agent reads
-          the report, explores the codebase, implements the fix, and opens the pull request.
-          Three concurrently.</p>
+        <div class="kicker">The full-context agent thesis — applied to Odoo</div>
+        <h1>&ldquo;What if every issue shipped with<br>its own <span class="grad">prod-realistic, ready-to-run world</span>?&rdquo;</h1>
+        <p class="lede">Running everything inside a single sandbox means the agent has the same
+          low-latency access to services, files, and tools that an engineer would have locally.
+          odoo-synth builds that sandbox per issue &mdash; a masked, pruned copy of the production
+          database, the addons repo, and Odoo itself in one isolated workspace &mdash; then hands it
+          to an autonomous agent that reads the report, implements the fix, and opens the pull
+          request. Three concurrently.</p>
         <div class="stats">
-          <div class="stat"><div class="big">1</div><div class="lbl">Masked prod DB</div></div>
+          <div class="stat"><div class="big">1</div><div class="lbl">PII-masked prod DB</div></div>
+          <div class="stat"><div class="big">90d</div><div class="lbl">Transaction pruning</div></div>
           <div class="stat"><div class="big">3</div><div class="lbl">Issues in parallel</div></div>
-          <div class="stat"><div class="big">0</div><div class="lbl">Manual steps</div></div>
           <div class="stat"><div class="big">PR</div><div class="lbl">Agent-authored</div></div>
         </div>
         <button class="btn go" id="ovNext" style="margin-top:40px;font-size:15px;padding:11px 24px">Environment Pipeline ▶</button>
