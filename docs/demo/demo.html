@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>odoo-synth — The Demo (Act 1 → Act 2)</title>
+<style>
+  :root{
+    --bg:#0b0f17; --panel:#121826; --panel2:#1a2236; --ink:#e6ebf5; --mut:#8b97b4;
+    --acc:#5b8cff; --acc2:#22c1a3; --warn:#f0a93b; --line:#26304a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);overflow:hidden;
+    font-family:-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial,sans-serif}
+  .shell{display:flex;flex-direction:column;height:100vh}
+
+  /* top deck */
+  .deck{display:flex;align-items:center;gap:14px;padding:10px 18px;background:var(--panel);
+    border-bottom:1px solid var(--line);flex:0 0 auto}
+  .brand{font-size:18px;font-weight:800;letter-spacing:-.3px}
+  .brand .o{color:var(--acc2)}
+  .actrail{display:flex;align-items:center;gap:0;margin-left:6px}
+  .act{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--mut);padding:4px 10px;cursor:pointer;border-radius:7px;transition:.2s}
+  .act:hover{background:var(--panel2);color:var(--ink)}
+  .act.on{color:var(--ink)}
+  .act .n{width:20px;height:20px;border-radius:5px;background:var(--panel2);border:1px solid var(--line);font-size:11px;font-weight:800;text-align:center;line-height:18px;color:var(--mut)}
+  .act.on .n{background:var(--acc);color:#0b0f17;border-color:var(--acc)}
+  .act.done .n{background:var(--acc2);color:#0b0f17;border-color:var(--acc2)}
+  .act .arr{color:var(--line);margin:0 4px}
+  .spacer{flex:1}
+  .kbd{font-size:11px;color:var(--mut);font-family:ui-monospace,Menlo,monospace}
+  .kbd b{color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:1px 6px}
+  .btn{background:var(--panel2);border:1px solid var(--line);color:var(--ink);font-size:13px;padding:6px 13px;border-radius:8px;cursor:pointer;font-weight:600}
+  .btn:hover{border-color:var(--acc)}
+  .btn.go{background:var(--acc2);color:#0b0f17;border-color:var(--acc2);animation:pulse 1.4s ease-in-out infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(34,193,163,.5)}50%{box-shadow:0 0 0 8px rgba(34,193,163,0)}}
+
+  /* stage area: only one pane visible at a time */
+  .stage{flex:1;position:relative;min-height:0}
+  .pane{position:absolute;inset:0;opacity:0;pointer-events:none;transition:opacity .5s;display:flex;flex-direction:column}
+  .pane.on{opacity:1;pointer-events:auto}
+
+  /* Act 0 hook */
+  .hook{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:0 40px}
+  .hook .kicker{font-size:12px;letter-spacing:3px;color:var(--acc2);font-weight:800;margin-bottom:18px;text-transform:uppercase}
+  .hook h1{font-size:46px;margin:0 0 10px;letter-spacing:-1px;line-height:1.05;font-weight:800}
+  .hook h1 .grad{background:linear-gradient(90deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hook .lede{font-size:18px;color:var(--mut);max-width:680px;margin:6px auto 0;line-height:1.5}
+  .hook .stats{display:flex;gap:38px;margin-top:40px}
+  .hook .stat{text-align:center}
+  .hook .stat .big{font-size:38px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+  .hook .stat .lbl{font-size:12px;color:var(--mut);margin-top:2px;letter-spacing:.5px}
+  .hook .start{margin-top:44px}
+
+  /* bridge slide between acts */
+  .bridge{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:0 40px}
+  .bridge .kicker{font-size:12px;letter-spacing:3px;color:var(--acc2);font-weight:800;margin-bottom:14px}
+  .bridge h2{font-size:34px;margin:0 0 16px;letter-spacing:-.5px;font-weight:800;max-width:760px}
+  .bridge .flow{display:flex;align-items:center;gap:14px;margin:22px 0 10px;flex-wrap:wrap;justify-content:center}
+  .bridge .chip{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 18px;font-size:14px;min-width:150px}
+  .bridge .chip b{display:block;font-size:15px;color:var(--ink)}
+  .bridge .chip span{color:var(--mut);font-size:12px}
+  .bridge .charr{color:var(--acc2);font-size:22px;font-weight:800}
+  .bridge .next{margin-top:30px}
+
+  iframe{flex:1;border:0;width:100%;background:var(--bg)}
+
+  .hintbar{flex:0 0 auto;padding:7px 18px;background:var(--panel2);border-top:1px solid var(--line);font-size:11.5px;color:var(--mut);display:flex;gap:22px;align-items:center}
+  .hintbar b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="deck">
+    <div class="brand"><span class="o">odoo</span>-synth</div>
+    <div class="actrail">
+      <div class="act on" id="act-0"><span class="n">0</span>Hook</div>
+      <span class="arr">›</span>
+      <div class="act" id="act-1"><span class="n">1</span>The Pipeline</div>
+      <span class="arr">›</span>
+      <div class="act" id="act-2"><span class="n">2</span>3 Agents Live</div>
+    </div>
+    <div class="spacer"></div>
+    <span class="kbd">keys: <b>1</b> <b>2</b> <b>0</b> · <b>→</b> next</span>
+    <button class="btn go" id="topNext">▶ Begin ▼</button>
+  </div>
+
+  <div class="stage">
+    <!-- Act 0: hook -->
+    <div class="pane on" id="pane-0">
+      <div class="hook">
+        <div class="kicker">From a production Odoo DB to a self-fixing PR — autonomously</div>
+        <h1>One bug, <span class="grad">three agents</span>,<br>no queue.</h1>
+        <p class="lede">odoo-synth stamps a masked copy of your production database into an isolated
+          dev workspace the instant a GitHub issue is filed — then an AI agent reads the bug,
+          explores your real code, writes the fix, and opens the PR. Three at once.</p>
+        <div class="stats">
+          <div class="stat"><div class="big">1</div><div class="lbl">MASKED PROD DB</div></div>
+          <div class="stat"><div class="big">3</div><div class="lbl">ISSUES IN PARALLEL</div></div>
+          <div class="stat"><div class="big">0</div><div class="lbl">HANDS-ON MINUTES</div></div>
+          <div class="stat"><div class="big">PR</div><div class="lbl">OPENED BY THE AGENT</div></div>
+        </div>
+        <button class="btn go" id="hookNext" style="margin-top:44px;font-size:16px;padding:12px 26px">▶ Act 1 — The Pipeline ▼</button>
+      </div>
+    </div>
+
+    <!-- Act 1: the pipeline -->
+    <div class="pane" id="pane-1">
+      <iframe id="frame1" src="act1.html"></iframe>
+    </div>
+
+    <!-- Bridge -->
+    <div class="pane" id="pane-1b">
+      <div class="bridge">
+        <div class="kicker">Act 1 built one ready workspace. Act 2 does it three times — at once.</div>
+        <h2>Now: three issues walk in. Three workspaces come up. Three agents go to work.</h2>
+        <div class="flow">
+          <div class="chip"><b>GitHub issue</b><span>opened by the PM</span></div>
+          <span class="charr">→</span>
+          <div class="chip"><b>webhook</b><span>matches a profile</span></div>
+          <span class="charr">→</span>
+          <div class="chip"><b>Coder workspace</b><span>masked DB + repo</span></div>
+          <span class="charr">→</span>
+          <div class="chip"><b>opencode agent</b><span>explores → fixes → PR</span></div>
+        </div>
+        <button class="btn go" id="bridgeNext" style="margin-top:34px;font-size:16px;padding:12px 26px">▶ Act 2 — 3 Agents Live ▼</button>
+      </div>
+    </div>
+
+    <!-- Act 2: 3 agents -->
+    <div class="pane" id="pane-2">
+      <iframe id="frame2" src="act2.html"></iframe>
+    </div>
+  </div>
+
+  <div class="hintbar">
+    <span><b>Act 1</b>: real pipeline logs (discover · build · mask) + live env at the end</span>
+    <span><b>Act 2</b>: real opencode sessions replayed · 3 columns · role-play volunteers</span>
+    <span style="margin-left:auto">▶ REAL RUN · no merge shown</span>
+  </div>
+</div>
+
+<script>
+const ORDER=["pane-0","pane-1","pane-1b","pane-2"];
+let idx=0;
+const acts=[document.getElementById('act-0'),document.getElementById('act-1'),document.getElementById('act-2')];
+function actOf(i){ return i<=0?0 : (i===1?1 : 2); } // map pane idx -> act rail index (1b counts as act1)
+function show(i){
+  idx=Math.max(0,Math.min(ORDER.length-1,i));
+  ORDER.forEach((id,n)=>document.getElementById(id).classList.toggle('on',n===idx));
+  // act rail: act0 -> hook; act1 -> pane1 & 1b; act2 -> pane2
+  const a=idx===0?0:(idx===3?2:1);
+  acts.forEach((el,n)=>{el.classList.toggle('on',n===a);el.classList.toggle('done',n<a);});
+  const top=document.getElementById('topNext');
+  if(idx>=ORDER.length-1){top.textContent='↺ Replay';top.classList.remove('go');}
+  else {top.textContent='▼ Next ▼';top.classList.add('go');}
+}
+function next(){ if(idx>=ORDER.length-1){show(0);} else show(idx+1); }
+document.getElementById('topNext').onclick=next;
+document.getElementById('hookNext').onclick=()=>show(1);
+document.getElementById('bridgeNext').onclick=()=>show(3);
+acts[0].onclick=()=>show(0);
+acts[1].onclick=()=>show(1);
+acts[2].onclick=()=>show(3);
+document.addEventListener('keydown',e=>{
+  if(e.key==='1')show(1);
+  else if(e.key==='2')show(3);
+  else if(e.key==='0')show(0);
+  else if(e.key==='ArrowRight')next();
+});
+show(0);
+</script>
+</body>
+</html>
