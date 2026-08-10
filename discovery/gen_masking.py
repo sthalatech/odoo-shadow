@@ -477,6 +477,15 @@ def build_subset_plan(schema: dict[str, dict[str, dict]],
     """
     excluded = set(exclude_data or [])
     rc = row_counts or {}
+
+    def _pick_date_col(cols: dict[str, dict]) -> str | None:
+        date_cols = {c for c, m in cols.items()
+                     if (m.get("data_type") or "").lower() in _DATE_TYPES}
+        if not date_cols:
+            return None
+        chosen = next((c for c in _DATE_COL_PRIORITY if c in date_cols), None)
+        return chosen or sorted(date_cols)[0]
+
     roots: dict[str, str] = {}
     for table in sorted(schema):
         if _is_master_table(table):
@@ -487,18 +496,31 @@ def build_subset_plan(schema: dict[str, dict[str, dict]],
         # with write_date from the ORM but no transactional data to prune.
         if min_rows > 0 and rc.get(table, 0) < min_rows:
             continue
-        cols = schema[table]
-        # find the highest-priority date column that exists on this table
-        date_cols = {c for c, m in cols.items()
-                     if (m.get("data_type") or "").lower() in _DATE_TYPES}
-        if not date_cols:
-            continue
-        chosen = next((c for c in _DATE_COL_PRIORITY if c in date_cols), None)
-        if chosen:
-            roots[table] = chosen
-        else:
-            # no recognized name; pick the first date-type column alphabetically
-            roots[table] = sorted(date_cols)[0]
+        col = _pick_date_col(schema[table])
+        if col:
+            roots[table] = col
+
+    # Pull-up: if a root table has a FK to a parent table that is NOT already
+    # a root (e.g. account_bank_statement_line -> account_bank_statement), and
+    # the parent has a date column and isn't master/config/excluded, add it.
+    # This ensures parent-child pairs are pruned together -- without it, the
+    # child gets pruned but the parent header is left behind with orphaned
+    # rows referencing deleted children (or empty statements with no lines).
+    parents_to_add: dict[str, str] = {}
+    for table in list(roots):
+        for col_name, col_info in schema[table].items():
+            parent = col_info.get("fk_target")
+            if not parent or parent in roots or parent in parents_to_add:
+                continue
+            if _is_master_table(parent) or parent in excluded:
+                continue
+            if parent not in schema:
+                continue
+            pcol = _pick_date_col(schema[parent])
+            if pcol:
+                parents_to_add[parent] = pcol
+    roots.update(parents_to_add)
+
     return {"roots": roots, "skip_tables": dict(_SKIP_TABLES)}
 
 

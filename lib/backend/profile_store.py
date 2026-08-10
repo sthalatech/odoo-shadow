@@ -240,6 +240,7 @@ def create_profile(profile_id: str, label: str, **fields: Any) -> None:
     with _WRITE_LOCK:
         fields = dict(fields)
         fields.setdefault("image_status", "draft")
+        fields.setdefault("subset_days", 0)  # 0 = no pruning; operator sets N
         now = time.time()
         _write(profile_id, {"id": profile_id, "label": label,
                             "created_at": now, "updated_at": now, **fields})
