@@ -78,7 +78,7 @@ def _make_context_tarball(include_enterprise: bool = False) -> bytes:
     images stay small and enterprise-free.
     """
     buf = io.BytesIO()
-    skip = {".git", "enterprise", "custom-addons"}
+    skip = {".git", "enterprise"}
     skip_files = set()
     if not include_enterprise:
         skip_files.add("enterprise.zip")
