@@ -41,7 +41,7 @@ def _psql_rows(query: str) -> list[list[str]]:
     return [ln.split("\t") for ln in out.splitlines() if ln.strip()]
 
 
-def snapshot_schema() -> dict[str, dict[str, dict]]:
+def snapshot_schema() -> tuple[dict[str, dict[str, dict]], dict[str, int]]:
     """table -> {column -> {data_type, fk_target, unique, not_null}} for public
     base tables. ``unique`` marks a column covered by ANY UNIQUE index or
     constraint -- single- OR multi-column, full OR partial (WHERE ...). A
@@ -68,6 +68,20 @@ def snapshot_schema() -> dict[str, dict[str, dict]]:
             "data_type": dtype, "fk_target": None,
             "unique": False, "not_null": (nullable == "NO"),
             "is_selection": False}
+    # Approximate row counts from pg_class.reltuples (instant, no table scan).
+    # Used by build_subset_plan to skip empty/config/wizard tables that have
+    # write_date but no real data to prune.
+    row_counts: dict[str, int] = {}
+    for r in _psql_rows(
+            "SELECT relname, GREATEST(0, reltuples)::bigint "
+            "FROM pg_class c "
+            "JOIN pg_namespace n ON n.oid=c.relnamespace "
+            "WHERE n.nspname='public' AND c.relkind='r'"):
+        if len(r) >= 2:
+            try:
+                row_counts[r[0]] = int(r[1])
+            except (ValueError, TypeError):
+                row_counts[r[0]] = 0
     # ANY column of ANY unique index (covers single + multi-column, partial +
     # full, and constraint-backed indexes -- pg_constraint unique constraints
     # are realized as unique indexes, so pg_index alone sees them all).
@@ -123,7 +137,7 @@ def snapshot_schema() -> dict[str, dict[str, dict]]:
         tbl = model.replace(".", "_")
         if tbl in tables and field in tables[tbl]:
             tables[tbl][field]["is_selection"] = True
-    return tables
+    return tables, row_counts
 
 
 # ---------------------------------------------------------------------------
@@ -438,7 +452,9 @@ def _is_master_table(table: str) -> bool:
 
 
 def build_subset_plan(schema: dict[str, dict[str, dict]],
-                      exclude_data: list[str] | None = None) -> dict:
+                      exclude_data: list[str] | None = None,
+                      row_counts: dict[str, int] | None = None,
+                      min_rows: int = 100) -> dict:
     """Classify tables from the live schema as transactional subset roots.
 
     A table is a root candidate if:
@@ -447,6 +463,9 @@ def build_subset_plan(schema: dict[str, dict[str, dict]],
         master prefix like res_*/product_*/account_journal/ir_* ...)
       - it is not already excluded via exclude-table-data (those come back
         empty, so pruning them is pointless)
+      - it has at least ``min_rows`` estimated rows (from pg_class.reltuples).
+        This filters out empty/config/wizard tables that have write_date via
+        the ORM but no transactional data to prune. Set min_rows=0 to disable.
 
     Returns a dict::
 
@@ -457,11 +476,16 @@ def build_subset_plan(schema: dict[str, dict[str, dict]],
     operator visibility.
     """
     excluded = set(exclude_data or [])
+    rc = row_counts or {}
     roots: dict[str, str] = {}
     for table in sorted(schema):
         if _is_master_table(table):
             continue
         if table in excluded:
+            continue
+        # Skip tables with too few rows -- they're config/wizard/empty tables
+        # with write_date from the ORM but no transactional data to prune.
+        if min_rows > 0 and rc.get(table, 0) < min_rows:
             continue
         cols = schema[table]
         # find the highest-priority date column that exists on this table
@@ -621,7 +645,7 @@ def generate_plan(installed_modules: list[str], _baseline_dir=None) -> tuple[str
     that the masker consumes for post-restore pruning and that the operator can
     review/edit in the control panel.
     """
-    schema = snapshot_schema()
+    schema, row_counts = snapshot_schema()
     table_transformers: dict[str, list[dict]] = {}
     n_cols = 0
     for table in sorted(schema):
@@ -652,7 +676,7 @@ def generate_plan(installed_modules: list[str], _baseline_dir=None) -> tuple[str
     # edit which transactional tables are pruned and which date column is used.
     # Tables already excluded via exclude-table-data are not roots (no rows to
     # prune). See build_subset_plan() above for the classification logic.
-    subset_plan = build_subset_plan(schema, exclude_data)
+    subset_plan = build_subset_plan(schema, exclude_data, row_counts)
     # Emit skip-tables as comments in the profile YAML for operator visibility.
     # NOTE: row-level date subsetting is intentionally NOT emitted as greenmask
     # `subset_conds` here. greenmask's subset engine panics on Odoo's schema
