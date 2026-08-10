@@ -685,8 +685,7 @@ def generate_plan(installed_modules: list[str], _baseline_dir=None) -> tuple[str
     # masker prunes old rows AFTER restore (GM_SUBSET_DAYS + subset_plan) with a
     # generic, FK-cascading DELETE that Postgres can always execute. See
     # masker/entrypoint.sh.
-    yaml_text = _render_greenmask(table_transformers, exclude_data, dropped_unsafe,
-                                   subset_plan.get("skip_tables"))
+    yaml_text = _render_greenmask(table_transformers, exclude_data, dropped_unsafe)
     return (yaml_text,
             {"tables": len(table_transformers), "columns": n_cols,
              "exclude_table_data": len(exclude_data)},
@@ -699,8 +698,7 @@ def _q(v: str) -> str:
 
 def _render_greenmask(table_transformers: dict[str, list[dict]],
                       exclude_table_data: list[str] | None = None,
-                      dropped_unsafe: list[str] | None = None,
-                      skip_tables: dict[str, str] | None = None) -> str:
+                      dropped_unsafe: list[str] | None = None) -> str:
     lines: list[str] = [
         "# greenmask masking profile (auto-generated during provenance discovery).",
         "# Transformers were derived from the LIVE source schema: PII-shaped text",
@@ -736,18 +734,6 @@ def _render_greenmask(table_transformers: dict[str, list[dict]],
             "    # NOT excluded (a retained table has a FK into them; emptying")
         lines.append(
             f"    #   would break restore): {', '.join(dropped_unsafe)}")
-    # Emit the skip-tables list as comments so the operator can see what was
-    # deliberately NOT masked and why. This is the _SKIP_TABLES dict from
-    # gen_masking.py -- tables handled by the masker's post-restore
-    # neutralize/reset, or that carry structural data Odoo depends on. The
-    # operator can still add transformers for these by hand.
-    if skip_tables:
-        lines.append("    #")
-        lines.append(
-            "    # Tables deliberately NOT masked (review/override if needed):")
-        for tbl in sorted(skip_tables):
-            reason = skip_tables[tbl]
-            lines.append(f"    #   {tbl} - {reason}")
     lines.append("  transformation:")
     # emit an entry for every table that needs a transformer.
     for table in sorted(table_transformers):
