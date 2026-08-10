@@ -388,12 +388,14 @@ def main() -> int:
     # editable per-source ruleset (curated baseline + auto-classified PII cols).
     # Best-effort: never fail discovery if the schema snapshot hiccups.
     masking_plan = ""
+    subset_plan = {}
     try:
         import gen_masking
-        masking_plan, mstats = gen_masking.generate_plan(installed)
+        masking_plan, mstats, subset_plan = gen_masking.generate_plan(installed)
         log(f"masking_plan (greenmask): tables={mstats['tables']} "
             f"columns={mstats['columns']} "
             f"exclude_table_data={mstats.get('exclude_table_data', 0)} "
+            f"subset_roots={len(subset_plan.get('roots', {}))} "
             f"(row subsetting applied at mask time via GM_SUBSET_DAYS)")
     except Exception as exc:  # noqa: BLE001
         log(f"WARN: masking plan generation failed: {exc}")
@@ -454,6 +456,7 @@ def main() -> int:
         "requirements_files": req_files,
         "required_config_keys": sorted(config_keys),
         "masking_plan": masking_plan,
+        "subset_plan": subset_plan,
         # multi-repo: {} for a today's single-repo profile (no non-odoo
         # components), so existing single-repo discovery.json consumers see
         # no shape change.

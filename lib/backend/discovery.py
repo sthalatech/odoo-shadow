@@ -171,6 +171,14 @@ def run_discovery(profile_id: str, emit: LogSink, run_id: str | None = None) -> 
     if discovered_plan and not (profile.get("masking_rules") or "").strip():
         fields["masking_rules"] = discovered_plan
 
+    # subset_plan: discovered transactional root tables -> date column map +
+    # skip-tables reasons. Seed from discovery only if the profile has none
+    # yet, so a hand-edited plan survives re-discovery (same policy as
+    # masking_rules above).
+    discovered_subset = data.get("subset_plan") or {}
+    if discovered_subset and not (profile.get("subset_plan") or {}):
+        fields["subset_plan"] = discovered_subset
+
     # Multi-repo: merge each non-odoo component's discovered wiring plan back
     # onto the profile's own `components` list (matched by name). Empty for a
     # legacy single-repo profile (no non-odoo components to discover), so
@@ -202,6 +210,9 @@ def run_discovery(profile_id: str, emit: LogSink, run_id: str | None = None) -> 
     if discovered_plan:
         emit(f"[panel] masking plan generated ({discovered_plan.count(chr(10))} "
              f"lines){' (seeded)' if 'masking_rules' in fields else ' (kept existing edits)'}")
+    if discovered_subset:
+        n_roots = len(discovered_subset.get("roots", {}))
+        emit(f"[panel] subset plan generated ({n_roots} transactional roots)")
 
     if req_keys:
         emit(f"[panel] required odoo.conf keys discovered: {', '.join(req_keys)}")
@@ -292,4 +303,21 @@ def discovered_masking_plan(profile: dict) -> str:
         return (json.loads(body).get("masking_plan") or "")
     except Exception:  # noqa: BLE001
         return ""
+
+
+def discovered_subset_plan(profile: dict) -> dict:
+    """Fetch the freshly-discovered subset plan from the profile's last
+    discovery.json in S3, for the 'reset to discovered' action. Returns {} if
+    unavailable."""
+    uri = profile.get("discovery_yaml_uri") or ""
+    if not uri.startswith("s3://"):
+        return {}
+    try:
+        _, _, rest = uri.partition("s3://")
+        bucket, _, key = rest.partition("/")
+        s3 = boto3.client("s3", region_name=_region(), config=Config(signature_version="s3v4"))
+        body = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+        return (json.loads(body).get("subset_plan") or {})
+    except Exception:  # noqa: BLE001
+        return {}
 

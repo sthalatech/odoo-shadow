@@ -155,6 +155,24 @@ def _upload_mask_rules(text: str) -> str:
         "get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=12 * 3600)
 
 
+def _upload_subset_plan(plan: dict) -> str:
+    """Upload a subset plan (JSON dict) to S3 and return a presigned GET URL
+    the masker can download. Returns '' if there's nothing to upload."""
+    if not plan:
+        return ""
+    bucket = config.dump_s3_bucket()
+    if not bucket:
+        raise RuntimeError("no S3 bucket configured (set DUMP_S3_BUCKET)")
+    prefix = config.dump_s3_prefix().rstrip("/").rsplit("/", 1)[0] + "/subset-plans"
+    key = f"{prefix}/{uuid.uuid4().hex[:12]}/subset_plan.json"
+    s3 = boto3.client("s3", region_name=_region(), config=Config(signature_version="s3v4"))
+    s3.put_object(Bucket=bucket, Key=key,
+                  Body=json.dumps(plan).encode("utf-8"),
+                  ContentType="application/json")
+    return s3.generate_presigned_url(
+        "get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=12 * 3600)
+
+
 # ---------------------------------------------------------------------------
 # Coder runner workspace (Option E, Phase 3: mask + discovery as workspaces)
 # ---------------------------------------------------------------------------
@@ -407,7 +425,8 @@ def run_runner(image_name: str, env_pairs: list[tuple[str, object]],
 
 def _mask_env_pairs(src: dict, tgt: dict, params: dict,
                     masked_dump_put_url: Optional[str],
-                    mask_rules_url: Optional[str] = None) -> list[tuple[str, str]]:
+                    mask_rules_url: Optional[str] = None,
+                    subset_plan_url: Optional[str] = None) -> list[tuple[str, str]]:
     """Build the masker's environment as a list of (KEY, VAL) pairs, written to
     S3 as an env-file the Coder runner workspace downloads. Values are
     stringified exactly as the masker container expects them."""
@@ -443,6 +462,8 @@ def _mask_env_pairs(src: dict, tgt: dict, params: dict,
         env.append(("MASKED_DUMP_PUT_URL", masked_dump_put_url))
     if mask_rules_url:
         env.append(("MASK_RULES_URL", mask_rules_url))
+    if subset_plan_url:
+        env.append(("GM_SUBSET_PLAN_URL", subset_plan_url))
 
     # dump slimming: keep only the last N days of transactional tables. Applied
     # by the masker AFTER restore via a generic FK-cascading DELETE (greenmask's
@@ -504,6 +525,11 @@ def run_operation(operation: str, params: dict, emit: LogSink,
     if mask_rules_url:
         emit("[panel] using edited per-source masking profile (greenmask)")
 
+    # per-source editable subset plan (generated during discovery)
+    subset_plan_url = _upload_subset_plan(params.get("subset_plan") or {})
+    if subset_plan_url:
+        emit("[panel] using per-source subset plan for post-restore pruning")
+
     via = ""
     if params.get("ssh_enabled") and params.get("ssh_bastion"):
         via = f" via ssh {params['ssh_bastion']}"
@@ -515,7 +541,8 @@ def run_operation(operation: str, params: dict, emit: LogSink,
     # image is unchanged; it PUTs a runner-result.json marker to S3 on
     # completion. The panel tails `coder logs -f` live into the run log.
     env_pairs = _mask_env_pairs(src, tgt, params,
-                                masked_dump_put_url, mask_rules_url)
+                                masked_dump_put_url, mask_rules_url,
+                                subset_plan_url)
     rr = run_runner("masker", env_pairs, "mask", emit, template=MASKER_TEMPLATE, run_id=run_id)
     exit_code = rr.get("exit_code", 1)
     emit(f"[panel] runner exited with code {exit_code}")

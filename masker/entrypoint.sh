@@ -136,37 +136,59 @@ say "restore verified (res_partner present)."
 #     in greenmask because greenmask's dump-time subset engine panics on Odoo's
 #     cyclic schema ("more than one cycle group found in SCC"). This generic SQL
 #     approach works on any schema regardless of FK cycles.
+#
+#     The root transactional tables -> date column map comes from a per-source
+#     subset_plan (JSON) generated during discovery and downloaded via
+#     GM_SUBSET_PLAN_URL. The operator can review/edit it in the control panel.
+#     If no plan is provided, falls back to the built-in defaults below.
 GM_SUBSET_DAYS="${GM_SUBSET_DAYS:-}"
 case "${GM_SUBSET_DAYS,,}" in ""|none|off|false|0) SUBSET_N="";; *) SUBSET_N="$GM_SUBSET_DAYS";; esac
 if [ -n "$SUBSET_N" ] && [ "$SUBSET_N" -gt 0 ] 2>/dev/null; then
   say "dump slimming: pruning transactional rows older than ${SUBSET_N} days ..."
 
-  # Root transactional tables -> candidate date columns in priority order. The
-  # first column that actually exists (date/timestamp) is used; tables/columns
-  # absent from the source are skipped, so this stays general across Odoo
-  # versions/modules. Master data (partners, products, journals, companies) is
-  # never a root here -- it is referenced BY these tables and is retained.
-  declare -A SUBSET_ROOTS=(
-    [sale_order]="date_order create_date"
-    [sale_order_line]="create_date"
-    [account_move]="date invoice_date create_date"
-    [account_move_line]="date create_date"
-    [purchase_order]="date_order create_date"
-    [purchase_order_line]="create_date"
-    [stock_picking]="scheduled_date date_done create_date"
-    [stock_move]="date create_date"
-    [stock_move_line]="date create_date"
-    [pos_order]="date_order create_date"
-    [pos_order_line]="create_date"
-    [mrp_production]="date_start create_date"
-    [crm_lead]="create_date"
-    [calendar_event]="start create_date"
-    [project_task]="create_date"
-    [hr_attendance]="check_in create_date"
-    [mail_message]="date create_date"
-    [mail_tracking_value]="create_date"
-    [bus_bus]="create_date"
-  )
+  # Root transactional tables -> date column. The per-source subset_plan
+  # (downloaded from GM_SUBSET_PLAN_URL) provides a {table: date_column} map
+  # discovered from the live source schema. If absent, use built-in defaults
+  # with candidate date columns in priority order (first existing one wins).
+  declare -A SUBSET_ROOTS
+  if [ -n "${GM_SUBSET_PLAN_URL:-}" ] && curl -fsS "${GM_SUBSET_PLAN_URL}" -o /tmp/subset_plan.json 2>/dev/null && [ -s /tmp/subset_plan.json ]; then
+    say "  using per-source subset plan from discovery"
+    # Extract roots as "table	date_column" lines and populate the array.
+    while IFS=$'\t' read -r tbl col; do
+      [ -n "$tbl" ] && [ -n "$col" ] && SUBSET_ROOTS["$tbl"]="$col"
+    done < <(python3 -c "
+import json, sys
+plan = json.load(open('/tmp/subset_plan.json'))
+for tbl, col in sorted(plan.get('roots', {}).items()):
+    print(f'{tbl}\t{col}')
+" 2>/dev/null)
+  fi
+
+  # Fallback: if no plan was downloaded or it produced no roots, use defaults.
+  if [ ${#SUBSET_ROOTS[@]} -eq 0 ]; then
+    say "  no subset plan provided; using built-in defaults"
+    SUBSET_ROOTS=(
+      [sale_order]="date_order create_date"
+      [sale_order_line]="create_date"
+      [account_move]="date invoice_date create_date"
+      [account_move_line]="date create_date"
+      [purchase_order]="date_order create_date"
+      [purchase_order_line]="create_date"
+      [stock_picking]="scheduled_date date_done create_date"
+      [stock_move]="date create_date"
+      [stock_move_line]="date create_date"
+      [pos_order]="date_order create_date"
+      [pos_order_line]="create_date"
+      [mrp_production]="date_start create_date"
+      [crm_lead]="create_date"
+      [calendar_event]="start create_date"
+      [project_task]="create_date"
+      [hr_attendance]="check_in create_date"
+      [mail_message]="date create_date"
+      [mail_tracking_value]="create_date"
+      [bus_bus]="create_date"
+    )
+  fi
 
   # Tables the greenmask profile already dumped schema-only (exclude-table-data):
   # their emptiness is intentional, so the orphan sweep must NOT delete/null rows

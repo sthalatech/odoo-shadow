@@ -439,6 +439,10 @@ def run_params(profile_id: str, overrides: Optional[dict[str, Any]] = None) -> d
         # When present the pipeline uploads it to S3 and points the masker at it
         # instead of the baked profile.
         "mask_rules": p.get("masking_rules") or "",
+        # Editable per-source subset plan (transactional root tables -> date
+        # column). When present the pipeline uploads it to S3 and the masker
+        # uses it for post-restore pruning instead of the hardcoded defaults.
+        "subset_plan": p.get("subset_plan") or {},
     }
     params.update(p.get("mask_inputs") or {})
     if overrides:

@@ -163,8 +163,14 @@ def _from_yaml_doc(doc: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {}
     source: dict[str, Any] = {}
     mask: dict[str, Any] = {}
+    # Top-level keys whose values are dicts that should be preserved as-is
+    # (not flattened into dotted names). Without this, _from_yaml_doc would
+    # decompose subset_plan.roots etc. into separate fields.
+    _TOP_LEVEL_DICTS = {"subset_plan"}
     for sec, body in (doc or {}).items():
-        if isinstance(body, dict):
+        if sec in _TOP_LEVEL_DICTS:
+            out[sec] = body
+        elif isinstance(body, dict):
             for key, v in body.items():
                 field = _NESTED_REV.get((sec, key))
                 if field:

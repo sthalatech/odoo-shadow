@@ -228,44 +228,82 @@ _BUSINESS_NAME_JSON_REPLACE = {
 # can make greenmask emit the table with ZERO rows, wiping base.public_user /
 # user_admin and 500-ing every request. Never auto-transform these; the operator
 # can still add rules by hand. Generic across sources -- table *names* only.
-_SKIP_TABLES = {
+# Each entry pairs the table name with a human-readable reason so the
+# generated profile can surface WHY it was skipped, not just that it was.
+_SKIP_TABLES: dict[str, str] = {
     # authentication & users -- reset/neutralized by the masker post-restore
-    "res_users", "res_users_log", "res_users_settings", "res_users_apikeys",
-    "res_users_apikeys_description", "auth_totp_device",
+    "res_users": "auth; masker resets password + neutralizes post-restore",
+    "res_users_log": "auth audit log; masker handles",
+    "res_users_settings": "auth user settings; masker handles",
+    "res_users_apikeys": "auth API keys; masker handles",
+    "res_users_apikeys_description": "auth API key descriptions; masker handles",
+    "auth_totp_device": "auth TOTP devices; masker handles",
     # XML-id / model metadata -- structural; masking breaks external IDs
-    "ir_model_data", "ir_model", "ir_model_fields", "ir_model_fields_selection",
-    "ir_model_relation", "ir_model_constraint", "ir_module_module",
-    "ir_module_module_dependency", "ir_translation", "ir_ui_view", "ir_ui_menu",
-    "ir_actions", "ir_act_window", "ir_act_window_view", "ir_act_server",
-    "ir_act_report", "ir_act_url", "ir_act_client", "ir_cron", "ir_rule",
-    "ir_config_parameter", "ir_model_access", "res_groups",
-    "ir_filters", "ir_logging",
+    "ir_model_data": "structural XML-id metadata; masking breaks external IDs",
+    "ir_model": "model registry metadata; masking breaks ORM",
+    "ir_model_fields": "field registry metadata; masking breaks ORM",
+    "ir_model_fields_selection": "selection values metadata; masking breaks ORM",
+    "ir_model_relation": "model relation metadata; masking breaks ORM",
+    "ir_model_constraint": "model constraint metadata; masking breaks ORM",
+    "ir_module_module": "module registry; masking breaks module loading",
+    "ir_module_module_dependency": "module dependency graph; structural",
+    "ir_translation": "translation data; structural",
+    "ir_ui_view": "view definitions; masking breaks UI",
+    "ir_ui_menu": "menu definitions; masking breaks UI",
+    "ir_actions": "action metadata; masking breaks UI",
+    "ir_act_window": "window action metadata; masking breaks UI",
+    "ir_act_window_view": "window action view metadata; masking breaks UI",
+    "ir_act_server": "server action metadata; masking breaks UI",
+    "ir_act_report": "report action metadata; masking breaks reports",
+    "ir_act_url": "URL action metadata; masking breaks UI",
+    "ir_act_client": "client action metadata; masking breaks UI",
+    "ir_cron": "cron definitions; masker disables post-restore",
+    "ir_rule": "record rules; masking breaks access control",
+    "ir_config_parameter": "system parameters; structural config",
+    "ir_model_access": "access rights metadata; masking breaks security",
+    "res_groups": "group definitions; masking breaks security",
+    "ir_filters": "saved filters; structural, not PII",
+    "ir_logging": "technical logs; dropped by exclude-table-data",
     # ir_property: generic property store. value_reference holds "<model>,<id>"
     # references (e.g. "product.pricelist,5") and value_text holds property
     # values. Masking value_reference to '********' breaks the model,id format
     # Odoo parses with int() (pricelist compute -> invalid input syntax for
     # type integer). Not PII -- it's structural config; the referenced ids stay
     # valid against the masked tables. Never auto-mask.
-    "ir_property",
+    "ir_property": "generic property store; structural config, not PII",
     # accounting report CONFIGURATION (Odoo core account_reports). These are
     # structural report-template rows (filter_* are selection/boolean-shaped
     # config, expressions are code-like strings), not customer PII. Masking
     # filter_hide_0_lines etc. to '********' makes Odoo's stored-field recompute
     # during -u all raise ValueError (can't cast '********' to boolean) and abort
     # the schema-reconcile. Same class as the ir_* metadata tables above.
-    "account_report", "account_report_column", "account_report_expression",
-    "account_report_external_value", "account_report_file_download_error_wizard",
-    "account_report_footnote", "account_report_horizontal_group_rule",
-    "account_report_line", "account_reports_export_wizard",
-    "account_reports_export_wizard_format",
+    "account_report": "accounting report config; structural template, not PII",
+    "account_report_column": "accounting report column config; structural",
+    "account_report_expression": "accounting report expression config; structural",
+    "account_report_external_value": "accounting report external value config; structural",
+    "account_report_file_download_error_wizard": "report wizard; transient, not PII",
+    "account_report_footnote": "accounting report footnote config; structural",
+    "account_report_horizontal_group_rule": "report group rule config; structural",
+    "account_report_line": "accounting report line config; structural",
+    "account_reports_export_wizard": "report export wizard; transient, not PII",
+    "account_reports_export_wizard_format": "report export format; transient, not PII",
     # credentials -- neutralized by the masker
-    "ir_mail_server", "fetchmail_server", "payment_provider",
+    "ir_mail_server": "SMTP credentials; masker neutralizes post-restore",
+    "fetchmail_server": "fetchmail credentials; masker neutralizes post-restore",
+    "payment_provider": "payment provider credentials; masker neutralizes post-restore",
     # core reference / locale / config data -- seeded from Odoo XML, parsed by
     # code (e.g. res_lang.week_start is cast with int(); hashing it 500s every
     # web page). Zero customer PII, so never auto-mask.
-    "res_lang", "res_country", "res_country_state", "res_country_group",
-    "res_currency", "res_currency_rate", "res_bank",
-    "decimal_precision", "uom_uom", "uom_category",
+    "res_lang": "locale reference data; code-parsed, zero PII",
+    "res_country": "country reference data; code-parsed, zero PII",
+    "res_country_state": "state reference data; code-parsed, zero PII",
+    "res_country_group": "country group reference data; structural, zero PII",
+    "res_currency": "currency reference data; code-parsed, zero PII",
+    "res_currency_rate": "currency rates; financial reference, not PII",
+    "res_bank": "bank reference data; code-parsed (masker may still mask names)",
+    "decimal_precision": "decimal precision config; structural, zero PII",
+    "uom_uom": "unit-of-measure reference data; structural config",
+    "uom_category": "UoM category reference data; structural config",
 }
 
 
@@ -355,6 +393,90 @@ def _exclude_candidates() -> set[str] | None:
 # component with multiple FK cycles. The masker instead runs a generic,
 # FK-cascading DELETE keyed off GM_SUBSET_DAYS (see masker/entrypoint.sh), which
 # Postgres can always execute regardless of schema cyclicity.
+#
+# Discovery DOES, however, emit a ``subset_plan`` (a JSON object) alongside the
+# masking profile so the operator can see, review, and edit which transactional
+# tables are pruned and which date column is used per table -- instead of the
+# old hardcoded bash array in the masker. The masker downloads the plan via
+# GM_SUBSET_PLAN_URL and falls back to the built-in defaults if absent.
+
+# Master/config tables that should NEVER be a subset root (they are referenced
+# BY transactional tables, not pruned themselves). A table is a transactional
+# root candidate only if it has a date/timestamp column AND is not in this set.
+_MASTER_TABLE_PREFIXES = (
+    "res_partner", "res_company", "res_users", "res_groups", "res_lang",
+    "res_country", "res_currency", "res_bank",
+    "product_product", "product_template", "product_category", "product_tag",
+    "account_account", "account_journal", "account_account_tag",
+    "account_tax", "account_tax_group", "account_fiscal_position",
+    "account_payment_method", "account_payment_term",
+    "stock_warehouse", "stock_location", "stock_picking_type",
+    "uom_uom", "uom_category",
+    "decimal_precision",
+    "ir_",  # all ir_* metadata/config tables
+)
+
+# Date column name priority for subset roots: prefer the business-meaningful
+# date (date_order, invoice_date, scheduled_date, ...) over create_date,
+# which is always present but less semantically relevant for "recent data".
+_DATE_COL_PRIORITY = (
+    "date_order", "invoice_date", "scheduled_date", "date_done",
+    "date_start", "date_deadline", "date", "start", "check_in",
+    "write_date", "create_date",
+)
+
+_DATE_TYPES = ("date", "timestamp without time zone", "timestamp with time zone")
+
+
+def _is_master_table(table: str) -> bool:
+    """True if ``table`` is master/config data (never a subset root). Uses
+    _SKIP_TABLES + prefix matching against _MASTER_TABLE_PREFIXES."""
+    if table in _SKIP_TABLES:
+        return True
+    low = table.lower()
+    return any(low.startswith(p) for p in _MASTER_TABLE_PREFIXES)
+
+
+def build_subset_plan(schema: dict[str, dict[str, dict]],
+                      exclude_data: list[str] | None = None) -> dict:
+    """Classify tables from the live schema as transactional subset roots.
+
+    A table is a root candidate if:
+      - it has at least one date/timestamp column
+      - it is NOT master/config data (not in _SKIP_TABLES, doesn't match a
+        master prefix like res_*/product_*/account_journal/ir_* ...)
+      - it is not already excluded via exclude-table-data (those come back
+        empty, so pruning them is pointless)
+
+    Returns a dict::
+
+        {"roots": {table: date_column}, "skip_tables": {table: reason}}
+
+    The ``roots`` map is consumed by the masker's post-restore pruner.
+    ``skip_tables`` is the full _SKIP_TABLES dict (reasons included) for
+    operator visibility.
+    """
+    excluded = set(exclude_data or [])
+    roots: dict[str, str] = {}
+    for table in sorted(schema):
+        if _is_master_table(table):
+            continue
+        if table in excluded:
+            continue
+        cols = schema[table]
+        # find the highest-priority date column that exists on this table
+        date_cols = {c for c, m in cols.items()
+                     if (m.get("data_type") or "").lower() in _DATE_TYPES}
+        if not date_cols:
+            continue
+        chosen = next((c for c in _DATE_COL_PRIORITY if c in date_cols), None)
+        if chosen:
+            roots[table] = chosen
+        else:
+            # no recognized name; pick the first date-type column alphabetically
+            roots[table] = sorted(date_cols)[0]
+    return {"roots": roots, "skip_tables": dict(_SKIP_TABLES)}
+
 
 
 def transformer_for(column: str, dtype: str, fk_target: str | None,
@@ -491,9 +613,14 @@ def transformer_for(column: str, dtype: str, fk_target: str | None,
 # plan generation + greenmask YAML render
 # ---------------------------------------------------------------------------
 
-def generate_plan(installed_modules: list[str], _baseline_dir=None) -> tuple[str, dict]:
-    """Build the editable greenmask profile YAML + stats. Includes every public
-    table that has at least one transformable PII-shaped column."""
+def generate_plan(installed_modules: list[str], _baseline_dir=None) -> tuple[str, dict, dict]:
+    """Build the editable greenmask profile YAML + stats + subset_plan.
+
+    Returns ``(yaml_text, stats, subset_plan)``. The subset_plan is a JSON dict
+    with ``roots`` (table -> date_column) and ``skip_tables`` (table -> reason)
+    that the masker consumes for post-restore pruning and that the operator can
+    review/edit in the control panel.
+    """
     schema = snapshot_schema()
     table_transformers: dict[str, list[dict]] = {}
     n_cols = 0
@@ -521,15 +648,25 @@ def generate_plan(installed_modules: list[str], _baseline_dir=None) -> tuple[str
     # a table dumped schema-only (exclude-table-data) has no rows, so a row
     # filter on it is pointless -- drop any overlap.
     excluded_set = set(exclude_data)
+    # Build the subset plan from the live schema so the operator can see and
+    # edit which transactional tables are pruned and which date column is used.
+    # Tables already excluded via exclude-table-data are not roots (no rows to
+    # prune). See build_subset_plan() above for the classification logic.
+    subset_plan = build_subset_plan(schema, exclude_data)
+    # Emit skip-tables as comments in the profile YAML for operator visibility.
     # NOTE: row-level date subsetting is intentionally NOT emitted as greenmask
     # `subset_conds` here. greenmask's subset engine panics on Odoo's schema
     # ("more than one cycle group found in SCC") because the core tables form a
     # single strongly-connected component with multiple FK cycles. Instead the
-    # masker prunes old rows AFTER restore (GM_SUBSET_DAYS) with a generic,
-    # FK-cascading DELETE that Postgres can always execute. See masker/entrypoint.sh.
-    yaml_text = _render_greenmask(table_transformers, exclude_data, dropped_unsafe)
-    return yaml_text, {"tables": len(table_transformers), "columns": n_cols,
-                       "exclude_table_data": len(exclude_data)}
+    # masker prunes old rows AFTER restore (GM_SUBSET_DAYS + subset_plan) with a
+    # generic, FK-cascading DELETE that Postgres can always execute. See
+    # masker/entrypoint.sh.
+    yaml_text = _render_greenmask(table_transformers, exclude_data, dropped_unsafe,
+                                   subset_plan.get("skip_tables"))
+    return (yaml_text,
+            {"tables": len(table_transformers), "columns": n_cols,
+             "exclude_table_data": len(exclude_data)},
+            subset_plan)
 
 
 def _q(v: str) -> str:
@@ -538,7 +675,8 @@ def _q(v: str) -> str:
 
 def _render_greenmask(table_transformers: dict[str, list[dict]],
                       exclude_table_data: list[str] | None = None,
-                      dropped_unsafe: list[str] | None = None) -> str:
+                      dropped_unsafe: list[str] | None = None,
+                      skip_tables: dict[str, str] | None = None) -> str:
     lines: list[str] = [
         "# greenmask masking profile (auto-generated during provenance discovery).",
         "# Transformers were derived from the LIVE source schema: PII-shaped text",
@@ -574,6 +712,18 @@ def _render_greenmask(table_transformers: dict[str, list[dict]],
             "    # NOT excluded (a retained table has a FK into them; emptying")
         lines.append(
             f"    #   would break restore): {', '.join(dropped_unsafe)}")
+    # Emit the skip-tables list as comments so the operator can see what was
+    # deliberately NOT masked and why. This is the _SKIP_TABLES dict from
+    # gen_masking.py -- tables handled by the masker's post-restore
+    # neutralize/reset, or that carry structural data Odoo depends on. The
+    # operator can still add transformers for these by hand.
+    if skip_tables:
+        lines.append("    #")
+        lines.append(
+            "    # Tables deliberately NOT masked (review/override if needed):")
+        for tbl in sorted(skip_tables):
+            reason = skip_tables[tbl]
+            lines.append(f"    #   {tbl} - {reason}")
     lines.append("  transformation:")
     # emit an entry for every table that needs a transformer.
     for table in sorted(table_transformers):

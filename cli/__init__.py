@@ -466,6 +466,10 @@ def cmd_profile_masking_rules(args) -> int:
             _err("no discovered masking plan available; run discovery first")
             return 2
         store.update_profile(args.profile_id, masking_rules=plan)
+        # Also reset the subset plan to the discovered version
+        sp = discovery.discovered_subset_plan(p)
+        if sp:
+            store.update_profile(args.profile_id, subset_plan=sp)
         print(plan)
         return 0
     if args.set is not None:
@@ -484,6 +488,7 @@ def cmd_profile_masking_rules(args) -> int:
     # show
     rules = p.get("masking_rules") or ""
     out = {"masking_rules": rules,
+           "subset_plan": p.get("subset_plan") or {},
            "discovery_yaml_uri": p.get("discovery_yaml_uri")}
     if args.json:
         _print_json(out)
@@ -491,6 +496,21 @@ def cmd_profile_masking_rules(args) -> int:
         print(f"discovery_yaml_uri: {out['discovery_yaml_uri'] or '(none)'}")
         print("---- masking_rules ----")
         print(rules or "(none)")
+        sp = p.get("subset_plan") or {}
+        if sp:
+            print("---- subset_plan ----")
+            roots = sp.get("roots") or {}
+            print(f"  roots ({len(roots)} transactional tables):")
+            for tbl, col in sorted(roots.items()):
+                print(f"    {tbl}: {col}")
+            skips = sp.get("skip_tables") or {}
+            if skips:
+                print(f"  skip_tables ({len(skips)} tables):")
+                for tbl, reason in sorted(skips.items()):
+                    print(f"    {tbl}: {reason}")
+        else:
+            print("---- subset_plan ----")
+            print("(none)")
     return 0
 
 
