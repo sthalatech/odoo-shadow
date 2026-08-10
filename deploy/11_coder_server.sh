@@ -42,7 +42,8 @@ CODER_NAME="${CODER_NAME:-$PROJECT-coder}"
 CODER_PORT="${CODER_PORT:-8943}"
 CODER_INSTANCE_TYPE="${CODER_INSTANCE_TYPE:-t3.small}"
 CODER_VOLUME_GB="${CODER_VOLUME_GB:-20}"
-CODER_VERSION="${CODER_VERSION:-v2.34.6}"
+CODER_VERSION="${CODER_VERSION:-v2.36.0}"
+CODER_VERSION_NUM="${CODER_VERSION#v}"
 # Browser-facing domain + scheme for the dashboard + every subdomain app tile
 # (see deploy/14_caddy_https.sh for the reverse proxy that actually terminates
 # TLS). Kept separate from CODER_SERVER_IP/CODER_URL -- which stay the
@@ -185,7 +186,7 @@ export HOME=/root
 CODER_PORT=8943
 if ! command -v coder >/dev/null 2>&1; then
   cd /tmp
-  curl -fsSL -o coder.tar.gz "https://github.com/coder/coder/releases/download/v2.34.6/coder_2.34.6_linux_amd64.tar.gz"
+  curl -fsSL -o coder.tar.gz "https://github.com/coder/coder/releases/download/__CODER_VERSION__/coder___CODER_VERSION_NUM___linux_amd64.tar.gz"
   tar xzf coder.tar.gz && install -m 0755 coder /usr/local/bin/coder && rm -f coder coder.tar.gz
 fi
 # Fetch our own public IP from IMDSv2 and bake CODER_ACCESS_URL so workspace
@@ -257,7 +258,12 @@ echo "coder-server started; access_url=${MYIP}:8943"
 UD_EOF
   # Inject the two LOCAL-known values the remote script above needs (its own
   # heredoc stayed single-quoted, so nothing else leaked in by accident).
-  sed -i "s/__PUBLIC_SCHEME__/${PUBLIC_SCHEME}/; s/__PUBLIC_DOMAIN_OR_EMPTY__/${PUBLIC_DOMAIN}/" "$UD"
+  sed -i \
+    -e "s/__PUBLIC_SCHEME__/${PUBLIC_SCHEME}/" \
+    -e "s/__PUBLIC_DOMAIN_OR_EMPTY__/${PUBLIC_DOMAIN}/" \
+    -e "s/__CODER_VERSION__/${CODER_VERSION}/" \
+    -e "s/__CODER_VERSION_NUM__/${CODER_VERSION_NUM}/" \
+    "$UD"
   # AMI id (Ubuntu 24.04 LTS via SSM public parameter).
   CODER_AMI="$(aws ssm get-parameters --region "$AWS_REGION" \
     --names /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id \

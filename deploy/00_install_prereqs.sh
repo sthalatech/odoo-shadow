@@ -107,7 +107,7 @@ if ! have coder; then
   log "installing Coder CLI ..."
   tmp="$(mktemp -d)"
   # Coder publishes static binaries per-arch, but the release assets are
-  # version-named (e.g. coder_2.34.6_linux_amd64.tar.gz), so the
+  # version-named (e.g. coder_2.36.0_linux_amd64.tar.gz), so the
   # .../releases/latest/download/<name> stable path 404s. Resolve the real
   # asset URL from the GitHub releases API instead.
   case "$(uname -s)" in
