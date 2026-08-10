@@ -23,6 +23,7 @@ from typing import Callable, Optional
 from urllib.parse import urlparse, unquote
 
 import boto3
+from botocore.config import Config
 
 from . import config
 
@@ -127,7 +128,7 @@ def _presign_masked_dump() -> tuple[str, str, str]:
         raise RuntimeError("no S3 bucket configured for masked dumps (set DUMP_S3_BUCKET)")
     prefix = config.dump_s3_prefix().rstrip("/")
     key = f"{prefix}/{uuid.uuid4().hex[:12]}/masked.dump"
-    s3 = boto3.client("s3", region_name=_region())
+    s3 = boto3.client("s3", region_name=_region(), config=Config(signature_version="s3v4"))
     put_url = s3.generate_presigned_url(
         "put_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=12 * 3600
     )
@@ -147,7 +148,7 @@ def _upload_mask_rules(text: str) -> str:
         raise RuntimeError("no S3 bucket configured (set DUMP_S3_BUCKET)")
     prefix = config.dump_s3_prefix().rstrip("/").rsplit("/", 1)[0] + "/mask-rules"
     key = f"{prefix}/{uuid.uuid4().hex[:12]}/greenmask.yml"
-    s3 = boto3.client("s3", region_name=_region())
+    s3 = boto3.client("s3", region_name=_region(), config=Config(signature_version="s3v4"))
     s3.put_object(Bucket=bucket, Key=key, Body=text.encode("utf-8"),
                   ContentType="text/yaml")
     return s3.generate_presigned_url(
@@ -179,7 +180,7 @@ def _upload_env_file(env_pairs: list[tuple[str, object]]) -> tuple[str, list[str
         raise RuntimeError("no S3 bucket configured (set the dump_s3_bucket)")
     prefix = config.dump_s3_prefix().rstrip("/").rsplit("/", 1)[0] + "/runner-env"
     key = f"{prefix}/{uuid.uuid4().hex[:12]}/container.env"
-    s3 = boto3.client("s3", region_name=_region())
+    s3 = boto3.client("s3", region_name=_region(), config=Config(signature_version="s3v4"))
     s3.put_object(Bucket=bucket, Key=key, Body=body, ContentType="text/plain")
     url = s3.generate_presigned_url(
         "get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=12 * 3600)
@@ -203,7 +204,7 @@ def _presign_runner_result(phase: str, run_id: str | None = None) -> tuple[str, 
     else:
         prefix = config.dump_s3_prefix().rstrip("/").rsplit("/", 1)[0] + "/runner-results"
         key = f"{prefix}/{phase}/{uuid.uuid4().hex[:12]}/result.json"
-    s3 = boto3.client("s3", region_name=_region())
+    s3 = boto3.client("s3", region_name=_region(), config=Config(signature_version="s3v4"))
     put_url = s3.generate_presigned_url(
         "put_object", Params={"Bucket": bucket, "Key": key,
                                "ContentType": "application/json"}, ExpiresIn=6 * 3600)

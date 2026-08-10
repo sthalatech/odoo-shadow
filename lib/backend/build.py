@@ -19,6 +19,7 @@ import uuid
 from typing import Callable, Optional
 
 import boto3
+from botocore.config import Config
 
 from . import config, store, profiles
 
@@ -94,7 +95,7 @@ def _make_context_tarball(include_enterprise: bool = False) -> bytes:
 
 
 def _s3():
-    return boto3.client("s3", region_name=_region())
+    return boto3.client("s3", region_name=_region(), config=Config(signature_version="s3v4"))
 
 
 def _bucket() -> str:

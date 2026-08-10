@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import boto3
+from botocore.config import Config
 
 from . import config
 
@@ -51,7 +52,7 @@ def _region() -> str:
 
 
 def _s3() -> boto3.client:
-    return boto3.client("s3", region_name=_region())
+    return boto3.client("s3", region_name=_region(), config=Config(signature_version="s3v4"))
 
 
 def _bucket() -> str:

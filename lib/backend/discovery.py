@@ -17,6 +17,7 @@ import uuid
 from typing import Callable, Optional
 
 import boto3
+from botocore.config import Config
 
 from . import config, store, profiles, pipeline
 
@@ -33,7 +34,7 @@ def _presign_discovery(profile_id: str) -> tuple[str, str, str]:
         raise RuntimeError("no S3 bucket configured (set the dump_s3_bucket)")
     prefix = config.dump_s3_prefix().rstrip("/").rsplit("/", 1)[0] + "/discovery"
     key = f"{prefix}/{profile_id}/{uuid.uuid4().hex[:12]}/discovery.json"
-    s3 = boto3.client("s3", region_name=_region())
+    s3 = boto3.client("s3", region_name=_region(), config=Config(signature_version="s3v4"))
     put_url = s3.generate_presigned_url(
         "put_object",
         Params={"Bucket": bucket, "Key": key, "ContentType": "application/json"},
@@ -286,7 +287,7 @@ def discovered_masking_plan(profile: dict) -> str:
     try:
         _, _, rest = uri.partition("s3://")
         bucket, _, key = rest.partition("/")
-        s3 = boto3.client("s3", region_name=_region())
+        s3 = boto3.client("s3", region_name=_region(), config=Config(signature_version="s3v4"))
         body = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
         return (json.loads(body).get("masking_plan") or "")
     except Exception:  # noqa: BLE001
