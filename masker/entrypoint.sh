@@ -357,7 +357,7 @@ BEGIN
         'barcode_nomenclature', -- barcode config
         'digest_digest',        -- digest config
         'auth_oauth_provider',  -- OAuth provider config
-        'mail_template',        -- mail template config
+        'mail_template'         -- mail template config
       )
   LOOP
     BEGIN
