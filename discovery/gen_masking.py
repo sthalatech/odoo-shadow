@@ -450,6 +450,31 @@ _MASTER_TABLE_PREFIXES = (
     "uom_uom", "uom_category",
     "decimal_precision",
     "ir_",  # all ir_* metadata/config tables
+    # website / CMS config -- 1-2 rows per company, must never be date-pruned
+    "website",
+    # Odoo single-row or few-row config tables with write_date but not
+    # transactional data (pruning them breaks the UI / boot)
+    "pos_config", "pos_payment_method",
+    "crm_team",
+    "account_cash_rounding", "account_incoterms",
+    "mail_alias", "mail_alias_domain", "mail_activity_type", "mail_message_subtype",
+    "resource_calendar", "resource_resource",
+    "delivery_carrier",
+    "product_pricelist", "product_removal", "product_attribute",
+    "loyalty_card", "loyalty_reward",
+    "utm_campaign", "utm_medium", "utm_source",
+    "hr_department", "hr_job",
+    "hr_payroll_structure", "hr_salary_rule", "hr_salary_rule_category",
+    "hr_work_entry_type",
+    "account_reconcile_model", "account_transfer_model",
+    "documents_folder",
+    "mrp_workcenter", "mrp_routing_workcenter",
+    "stock_route", "stock_rule", "stock_storage_category", "stock_package_type",
+    "sale_order_close_reason", "sale_order_template", "sale_subscription_plan",
+    "amazon_marketplace", "amazon_offer",
+    "l10n_in_ewaybill_type", "l10n_in_gst_return_period", "l10n_in_port_code",
+    "restaurant_table",
+    "payment_method", "payment_mode",
 )
 
 # Date column name priority for subset roots: prefer the business-meaningful

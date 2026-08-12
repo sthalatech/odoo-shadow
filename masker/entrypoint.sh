@@ -211,6 +211,17 @@ for tbl, col in sorted(plan.get('roots', {}).items()):
   for tbl in "${!SUBSET_ROOTS[@]}"; do
     exists="$($PSQL_T -A -t -c "SELECT to_regclass('public.${tbl}')" 2>/dev/null || true)"
     [ "$exists" = "$tbl" ] || [ "$exists" = "public.${tbl}" ] || continue
+    # Skip tables with very few rows -- they are config/master data, not
+    # transactional data worth date-pruning (e.g. website has 1-2 rows,
+    # pos_config has a handful). Pruning them would delete essential config.
+    # Use pg_class.reltuples (instant from stats) instead of count(*) to avoid
+    # scanning large tables. reltuples is -1 if never analyzed; treat that as
+    # "enough rows to try pruning".
+    row_est="$($PSQL_T -A -t -c "SELECT reltuples::bigint FROM pg_class WHERE relname='${tbl}' AND relnamespace='public'::regnamespace" 2>/dev/null || echo -1)"
+    if [ "${row_est:--1}" -ge 0 ] && [ "${row_est:--1}" -lt 500 ]; then
+      say "  skip prune (~${row_est} rows est): ${tbl}"
+      continue
+    fi
     for col in ${SUBSET_ROOTS[$tbl]}; do
       hit="$($PSQL_T -A -t -c "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='${tbl}' AND column_name='${col}' AND data_type IN ('date','timestamp without time zone','timestamp with time zone') LIMIT 1" 2>/dev/null || true)"
       if [ "$hit" = "1" ]; then
@@ -295,11 +306,16 @@ BEGIN;
 SET LOCAL session_replication_role = replica;
 
 -- Step 1: collect all partner IDs directly referenced by surviving rows.
+-- Seed with always-reachable partners: company partners, user partners.
+-- These must survive the sweep regardless of which transactional tables
+-- were pruned (res_company/res_users have very few rows but their
+-- partner references are critical for Odoo to boot).
 CREATE TEMP TABLE _partner_direct ON COMMIT DROP AS
 SELECT DISTINCT pid FROM (
-  SELECT NULL::bigint AS pid WHERE false
-) empty
-WHERE false;
+  SELECT partner_id AS pid FROM res_company WHERE partner_id IS NOT NULL
+  UNION
+  SELECT partner_id AS pid FROM res_users WHERE partner_id IS NOT NULL
+) seed;
 
 DO $collect$
 DECLARE
@@ -319,8 +335,6 @@ BEGIN
       AND cl.relname NOT IN (
         'ir_property',          -- generic property store, references everything
         'res_partner',          -- self-reference (handled by parent_id closure)
-        'res_company',          -- company master, always retained
-        'res_users',            -- auth, always retained
         'ir_sequence',          -- sequence config
         'ir_model_data',        -- XML-id metadata
         'ir_rule',              -- record rules
