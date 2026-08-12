@@ -301,7 +301,7 @@ SELECT DISTINCT pid FROM (
 ) empty
 WHERE false;
 
-DO \$collect\$
+DO $collect$
 DECLARE
   fk record;
   cnt int;
@@ -314,6 +314,51 @@ BEGIN
     JOIN pg_attribute att  ON att.attrelid = con.conrelid  AND att.attnum = con.conkey[1]
     JOIN pg_attribute patt ON patt.attrelid = con.confrelid AND patt.attnum = con.confkey[1]
     WHERE pcl.relname = 'res_partner' AND con.contype = 'f'
+      -- Skip config/structural tables that retain all rows (their partner
+      -- refs are not meaningful for reachability after subsetting).
+      AND cl.relname NOT IN (
+        'ir_property',          -- generic property store, references everything
+        'res_partner',          -- self-reference (handled by parent_id closure)
+        'res_company',          -- company master, always retained
+        'res_users',            -- auth, always retained
+        'ir_sequence',          -- sequence config
+        'ir_model_data',        -- XML-id metadata
+        'ir_rule',              -- record rules
+        'ir_filters',           -- saved filters
+        'base_automation',      -- automation rules
+        'mail_alias',           -- mail aliases
+        'mail_alias_domain',    -- mail alias domains
+        'resource_resource',    -- resource records
+        'resource_calendar',    -- calendar config
+        'hr_employee',          -- employee master
+        'hr_department',        -- department master
+        'hr_job',               -- job positions
+        'utm_campaign', 'utm_medium', 'utm_source',  -- marketing config
+        'crm_team',             -- sales team config
+        'pos_config',           -- POS config
+        'pos_payment_method',   -- POS payment config
+        'delivery_carrier',     -- carrier config
+        'product_pricelist',    -- pricelist config
+        'account_analytic_account',  -- analytic account master
+        'account_journal',      -- journal master
+        'loyalty_card',         -- loyalty card master
+        'loyalty_program',      -- loyalty program config
+        'payment_token',        -- payment token master
+        'payment_provider',     -- payment provider config
+        'documents_folder',     -- documents folder config
+        'documents_tag',        -- documents tag config
+        'rating_rating',        -- ratings (keep for now, may reference partners)
+        'discuss_channel',      -- channel config
+        'calendar_event',       -- calendar (may have been pruned already)
+        'sla_claim',            -- SLA config
+        'stock_warehouse',      -- warehouse master
+        'stock_location',       -- location master
+        'stock_picking_type',   -- picking type config
+        'barcode_nomenclature', -- barcode config
+        'digest_digest',        -- digest config
+        'auth_oauth_provider',  -- OAuth provider config
+        'mail_template',        -- mail template config
+      )
   LOOP
     BEGIN
       EXECUTE format(
@@ -326,25 +371,48 @@ BEGIN
   SELECT count(*) INTO cnt FROM _partner_direct;
   RAISE NOTICE 'partner sweep: % direct references collected', cnt;
 END
-\$collect\$;
+$collect$;
 
 -- Step 2: transitive closure over parent_id (company -> contact chains).
 -- A partner is reachable if it's directly referenced, OR its parent is
 -- reachable, OR it's a parent of a reachable partner.
-CREATE TEMP TABLE _partner_reachable ON COMMIT DROP AS
-WITH RECURSIVE reachable AS (
-  SELECT pid AS id FROM _partner_direct
-  UNION
-  SELECT p.parent_id FROM res_partner p JOIN reachable r ON p.id = r.id
-  WHERE p.parent_id IS NOT NULL
-  UNION
-  SELECT p.id FROM res_partner p JOIN reachable r ON p.parent_id = r.id
-  WHERE p.parent_id IS NOT NULL
-)
-SELECT id FROM reachable;
+CREATE TEMP TABLE _partner_reachable(id bigint PRIMARY KEY) ON COMMIT DROP;
+INSERT INTO _partner_reachable SELECT pid FROM _partner_direct
+ON CONFLICT DO NOTHING;
+-- Iteratively add parents and children until no new rows (fixpoint).
+-- Two directions: walk up (partner -> parent) and down (parent -> children).
+DO $closure$
+DECLARE
+  new_rows int;
+  down_rows int;
+  passes int := 0;
+BEGIN
+  LOOP
+    passes := passes + 1;
+    new_rows := 0;
+    -- Walk up: add parent_id of any reachable partner
+    INSERT INTO _partner_reachable
+    SELECT p.parent_id FROM res_partner p
+    JOIN _partner_reachable r ON p.id = r.id
+    WHERE p.parent_id IS NOT NULL
+    ON CONFLICT DO NOTHING;
+    GET DIAGNOSTICS new_rows = ROW_COUNT;
+    -- Walk down: add partners whose parent is reachable
+    INSERT INTO _partner_reachable
+    SELECT p.id FROM res_partner p
+    JOIN _partner_reachable r ON p.parent_id = r.id
+    WHERE p.parent_id IS NOT NULL
+    ON CONFLICT DO NOTHING;
+    GET DIAGNOSTICS down_rows = ROW_COUNT;
+    new_rows := new_rows + down_rows;
+    EXIT WHEN new_rows = 0 OR passes >= 20;
+  END LOOP;
+  RAISE NOTICE 'partner sweep: closure converged in % passes', passes;
+END
+$closure$;
 
 -- Step 3: delete unreferenced partners.
-DO \$delete\$
+DO $delete$
 DECLARE
   deleted bigint;
 BEGIN
@@ -352,7 +420,7 @@ BEGIN
   GET DIAGNOSTICS deleted = ROW_COUNT;
   RAISE NOTICE 'partner sweep: deleted % unreferenced partners', deleted;
 END
-\$delete\$;
+$delete$;
 
 COMMIT;
 PSQLP

@@ -526,11 +526,6 @@ def build_subset_plan(schema: dict[str, dict[str, dict]],
         populated = sorted([c for c in date_cols if _is_populated(c)],
                            key=lambda c: _DATE_COL_PRIORITY.index(c) if c in _DATE_COL_PRIORITY else 999)
         if populated:
-            if table in ("account_move", "stock_move", "crm_lead", "project_task"):
-                import sys as _sys
-                print(f"[DEBUG] _pick_date_col({table}): date_cols={sorted(date_cols)} "
-                      f"populated={populated} nf_entries={[(c, nf.get((table,c))) for c in sorted(date_cols)]} "
-                      f"chosen={populated[0]}", file=_sys.stderr)
             return populated[0]
         # All columns are NULL/empty -- pick by priority anyway (harmless).
         return sorted(date_cols,
