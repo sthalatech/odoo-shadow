@@ -280,7 +280,85 @@ END
 \$prune\$;
 COMMIT;
 SQL
-    say "dump slimming: prune + orphan sweep complete; reclaiming space ..."
+    say "dump slimming: prune + orphan sweep complete."
+
+    # 4b-2. Partner reachability sweep: delete res_partner rows not referenced
+    #       by any surviving transactional row. Master data like partners can
+    #       be huge (100k+) but only a fraction is referenced after subsetting.
+    #       We find all partner IDs directly referenced by any FK column pointing
+    #       at res_partner, walk parent_id chains (company -> contact), then
+    #       delete the rest. This is safe because it runs AFTER the orphan sweep
+    #       has already cleaned up dangling FK references.
+    say "dump slimming: pruning unreferenced res_partner rows ..."
+    $PSQL_T -v ON_ERROR_STOP=1 <<'PSQLP'
+BEGIN;
+SET LOCAL session_replication_role = replica;
+
+-- Step 1: collect all partner IDs directly referenced by surviving rows.
+CREATE TEMP TABLE _partner_direct ON COMMIT DROP AS
+SELECT DISTINCT pid FROM (
+  SELECT NULL::bigint AS pid WHERE false
+) empty
+WHERE false;
+
+DO \$collect\$
+DECLARE
+  fk record;
+  cnt int;
+BEGIN
+  FOR fk IN
+    SELECT cl.relname AS child, att.attname AS child_col
+    FROM pg_constraint con
+    JOIN pg_class cl  ON cl.oid = con.conrelid AND cl.relnamespace = 'public'::regnamespace
+    JOIN pg_class pcl ON pcl.oid = con.confrelid
+    JOIN pg_attribute att  ON att.attrelid = con.conrelid  AND att.attnum = con.conkey[1]
+    JOIN pg_attribute patt ON patt.attrelid = con.confrelid AND patt.attnum = con.confkey[1]
+    WHERE pcl.relname = 'res_partner' AND con.contype = 'f'
+  LOOP
+    BEGIN
+      EXECUTE format(
+        'INSERT INTO _partner_direct SELECT DISTINCT %I FROM public.%s WHERE %I IS NOT NULL',
+        fk.child_col, fk.child, fk.child_col);
+    EXCEPTION WHEN others THEN
+      -- table might not exist or column might be gone; skip
+    END;
+  END LOOP;
+  SELECT count(*) INTO cnt FROM _partner_direct;
+  RAISE NOTICE 'partner sweep: % direct references collected', cnt;
+END
+\$collect\$;
+
+-- Step 2: transitive closure over parent_id (company -> contact chains).
+-- A partner is reachable if it's directly referenced, OR its parent is
+-- reachable, OR it's a parent of a reachable partner.
+CREATE TEMP TABLE _partner_reachable ON COMMIT DROP AS
+WITH RECURSIVE reachable AS (
+  SELECT pid AS id FROM _partner_direct
+  UNION
+  SELECT p.parent_id FROM res_partner p JOIN reachable r ON p.id = r.id
+  WHERE p.parent_id IS NOT NULL
+  UNION
+  SELECT p.id FROM res_partner p JOIN reachable r ON p.parent_id = r.id
+  WHERE p.parent_id IS NOT NULL
+)
+SELECT id FROM reachable;
+
+-- Step 3: delete unreferenced partners.
+DO \$delete\$
+DECLARE
+  deleted bigint;
+BEGIN
+  DELETE FROM res_partner p WHERE p.id NOT IN (SELECT id FROM _partner_reachable);
+  GET DIAGNOSTICS deleted = ROW_COUNT;
+  RAISE NOTICE 'partner sweep: deleted % unreferenced partners', deleted;
+END
+\$delete\$;
+
+COMMIT;
+PSQLP
+    say "dump slimming: partner sweep complete"
+
+    say "reclaiming space ..."
     $PSQL_T -c "VACUUM (ANALYZE);" >/dev/null 2>&1 || true
     say "dump slimming done."
   fi

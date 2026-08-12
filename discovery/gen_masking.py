@@ -82,6 +82,28 @@ def snapshot_schema() -> tuple[dict[str, dict[str, dict]], dict[str, int]]:
                 row_counts[r[0]] = int(r[1])
             except (ValueError, TypeError):
                 row_counts[r[0]] = 0
+    # Per-column null-ness for date columns. Used by build_subset_plan to
+    # prefer date columns that actually have data over those that exist but are
+    # always NULL (e.g. account_move.invoice_date is always NULL, while
+    # account_move.date is populated). Keyed by (table, column) -> bool
+    # (True = has non-NULL data, False = all NULL or empty).
+    #
+    # We try pg_stats first (instant if ANALYZE has been run). If pg_stats
+    # has no data for a table, we fall back to a quick per-column probe
+    # (SELECT 1 FROM tbl WHERE col IS NOT NULL LIMIT 1) which is fast and
+    # reliable regardless of ANALYZE state.
+    null_fracs: dict[tuple[str, str], float] = {}
+    try:
+        for r in _psql_rows(
+                "SELECT tablename, attname, null_frac "
+                "FROM pg_stats WHERE schemaname='public'"):
+            if len(r) >= 3:
+                try:
+                    null_fracs[(r[0], r[1])] = float(r[2]) if r[2] is not None else 1.0
+                except (ValueError, TypeError):
+                    pass
+    except Exception:
+        pass  # pg_stats might not exist or query failed; use probes below
     # ANY column of ANY unique index (covers single + multi-column, partial +
     # full, and constraint-backed indexes -- pg_constraint unique constraints
     # are realized as unique indexes, so pg_index alone sees them all).
@@ -137,7 +159,7 @@ def snapshot_schema() -> tuple[dict[str, dict[str, dict]], dict[str, int]]:
         tbl = model.replace(".", "_")
         if tbl in tables and field in tables[tbl]:
             tables[tbl][field]["is_selection"] = True
-    return tables, row_counts
+    return tables, row_counts, null_fracs
 
 
 # ---------------------------------------------------------------------------
@@ -434,9 +456,9 @@ _MASTER_TABLE_PREFIXES = (
 # date (date_order, invoice_date, scheduled_date, ...) over create_date,
 # which is always present but less semantically relevant for "recent data".
 _DATE_COL_PRIORITY = (
-    "date_order", "invoice_date", "scheduled_date", "date_done",
-    "date_start", "date_deadline", "date", "start", "check_in",
-    "write_date", "create_date",
+    "date_order", "date", "scheduled_date", "date_done",
+    "date_start", "write_date", "create_date", "start", "check_in",
+    "invoice_date", "date_deadline",
 )
 
 _DATE_TYPES = ("date", "timestamp without time zone", "timestamp with time zone")
@@ -454,6 +476,7 @@ def _is_master_table(table: str) -> bool:
 def build_subset_plan(schema: dict[str, dict[str, dict]],
                       exclude_data: list[str] | None = None,
                       row_counts: dict[str, int] | None = None,
+                      null_fracs: dict[tuple[str, str], float] | None = None,
                       min_rows: int = 100) -> dict:
     """Classify tables from the live schema as transactional subset roots.
 
@@ -477,14 +500,41 @@ def build_subset_plan(schema: dict[str, dict[str, dict]],
     """
     excluded = set(exclude_data or [])
     rc = row_counts or {}
+    nf = null_fracs or {}
 
-    def _pick_date_col(cols: dict[str, dict]) -> str | None:
+    def _pick_date_col(table: str, cols: dict[str, dict]) -> str | None:
         date_cols = {c for c, m in cols.items()
                      if (m.get("data_type") or "").lower() in _DATE_TYPES}
         if not date_cols:
             return None
-        chosen = next((c for c in _DATE_COL_PRIORITY if c in date_cols), None)
-        return chosen or sorted(date_cols)[0]
+        # If pg_stats has null_frac for this table, use it to prefer populated
+        # columns. If not, fall back to a quick probe (SELECT 1 ... LIMIT 1)
+        # to check if the column actually has non-NULL data.
+        def _is_populated(c: str) -> bool:
+            frac = nf.get((table, c))
+            if frac is not None:
+                return frac < 0.9  # <90% null = populated
+            # No pg_stats: probe the column directly (fast, LIMIT 1).
+            try:
+                r = _psql_rows(
+                    f"SELECT 1 FROM public.{table} WHERE {c} IS NOT NULL LIMIT 1")
+                return bool(r)
+            except Exception:
+                return True  # assume populated if probe fails
+        # Split into populated and unpopulated. Prefer populated; within each
+        # group, use the semantic priority order.
+        populated = sorted([c for c in date_cols if _is_populated(c)],
+                           key=lambda c: _DATE_COL_PRIORITY.index(c) if c in _DATE_COL_PRIORITY else 999)
+        if populated:
+            if table in ("account_move", "stock_move", "crm_lead", "project_task"):
+                import sys as _sys
+                print(f"[DEBUG] _pick_date_col({table}): date_cols={sorted(date_cols)} "
+                      f"populated={populated} nf_entries={[(c, nf.get((table,c))) for c in sorted(date_cols)]} "
+                      f"chosen={populated[0]}", file=_sys.stderr)
+            return populated[0]
+        # All columns are NULL/empty -- pick by priority anyway (harmless).
+        return sorted(date_cols,
+                      key=lambda c: _DATE_COL_PRIORITY.index(c) if c in _DATE_COL_PRIORITY else 999)[0]
 
     roots: dict[str, str] = {}
     for table in sorted(schema):
@@ -496,7 +546,7 @@ def build_subset_plan(schema: dict[str, dict[str, dict]],
         # with write_date from the ORM but no transactional data to prune.
         if min_rows > 0 and rc.get(table, 0) < min_rows:
             continue
-        col = _pick_date_col(schema[table])
+        col = _pick_date_col(table, schema[table])
         if col:
             roots[table] = col
 
@@ -516,7 +566,7 @@ def build_subset_plan(schema: dict[str, dict[str, dict]],
                 continue
             if parent not in schema:
                 continue
-            pcol = _pick_date_col(schema[parent])
+            pcol = _pick_date_col(parent, schema[parent])
             if pcol:
                 parents_to_add[parent] = pcol
     roots.update(parents_to_add)
@@ -667,7 +717,7 @@ def generate_plan(installed_modules: list[str], _baseline_dir=None) -> tuple[str
     that the masker consumes for post-restore pruning and that the operator can
     review/edit in the control panel.
     """
-    schema, row_counts = snapshot_schema()
+    schema, row_counts, null_fracs = snapshot_schema()
     table_transformers: dict[str, list[dict]] = {}
     n_cols = 0
     for table in sorted(schema):
@@ -698,7 +748,7 @@ def generate_plan(installed_modules: list[str], _baseline_dir=None) -> tuple[str
     # edit which transactional tables are pruned and which date column is used.
     # Tables already excluded via exclude-table-data are not roots (no rows to
     # prune). See build_subset_plan() above for the classification logic.
-    subset_plan = build_subset_plan(schema, exclude_data, row_counts)
+    subset_plan = build_subset_plan(schema, exclude_data, row_counts, null_fracs)
     # Emit skip-tables as comments in the profile YAML for operator visibility.
     # NOTE: row-level date subsetting is intentionally NOT emitted as greenmask
     # `subset_conds` here. greenmask's subset engine panics on Odoo's schema
