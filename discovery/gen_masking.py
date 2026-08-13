@@ -439,6 +439,13 @@ def _exclude_candidates() -> set[str] | None:
 # Master/config tables that should NEVER be a subset root (they are referenced
 # BY transactional tables, not pruned themselves). A table is a transactional
 # root candidate only if it has a date/timestamp column AND is not in this set.
+# Master/config tables that should NEVER be a subset root. Two kinds:
+#   1. PREFIX matches (e.g. "ir_" catches all ir_* metadata tables)
+#   2. EXACT matches for specific config tables that have write_date but
+#      few rows and must not be date-pruned (e.g. "website", "pos_config")
+# Prefix matching is used only when the prefix is unambiguous (all tables
+# starting with it are config). For "website", we use exact match because
+# website_track and website_visitor are transactional.
 _MASTER_TABLE_PREFIXES = (
     "res_partner", "res_company", "res_users", "res_groups", "res_lang",
     "res_country", "res_currency", "res_bank",
@@ -450,10 +457,13 @@ _MASTER_TABLE_PREFIXES = (
     "uom_uom", "uom_category",
     "decimal_precision",
     "ir_",  # all ir_* metadata/config tables
-    # website / CMS config -- 1-2 rows per company, must never be date-pruned
-    "website",
-    # Odoo single-row or few-row config tables with write_date but not
-    # transactional data (pruning them breaks the UI / boot)
+)
+
+# Exact table names that are config (not transactional) and must not be
+# date-pruned, but whose names would be too broad as prefixes (e.g.
+# "website" prefix would also match "website_track" which IS transactional).
+_MASTER_TABLE_EXACT = frozenset({
+    "website", "website_page",
     "pos_config", "pos_payment_method",
     "crm_team",
     "account_cash_rounding", "account_incoterms",
@@ -475,7 +485,7 @@ _MASTER_TABLE_PREFIXES = (
     "l10n_in_ewaybill_type", "l10n_in_gst_return_period", "l10n_in_port_code",
     "restaurant_table",
     "payment_method", "payment_mode",
-)
+})
 
 # Date column name priority for subset roots: prefer the business-meaningful
 # date (date_order, invoice_date, scheduled_date, ...) over create_date,
@@ -491,10 +501,13 @@ _DATE_TYPES = ("date", "timestamp without time zone", "timestamp with time zone"
 
 def _is_master_table(table: str) -> bool:
     """True if ``table`` is master/config data (never a subset root). Uses
-    _SKIP_TABLES + prefix matching against _MASTER_TABLE_PREFIXES."""
+    _SKIP_TABLES + prefix matching (_MASTER_TABLE_PREFIXES) + exact match
+    (_MASTER_TABLE_EXACT)."""
     if table in _SKIP_TABLES:
         return True
     low = table.lower()
+    if low in _MASTER_TABLE_EXACT:
+        return True
     return any(low.startswith(p) for p in _MASTER_TABLE_PREFIXES)
 
 

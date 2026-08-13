@@ -150,7 +150,14 @@ if [ -n "$SUBSET_N" ] && [ "$SUBSET_N" -gt 0 ] 2>/dev/null; then
   # (downloaded from GM_SUBSET_PLAN_URL) provides a {table: date_column} map
   # discovered from the live source schema. If absent, use built-in defaults
   # with candidate date columns in priority order (first existing one wins).
+  #
+  # The plan also carries skip_tables: tables excluded from subsetting (config,
+  # metadata, structural). The partner reachability sweep uses this list to
+  # decide which tables' FK references to res_partner are NOT meaningful for
+  # reachability (those tables retain all rows after subsetting, so their
+  # partner references would make every partner appear reachable).
   declare -A SUBSET_ROOTS
+  SKIP_TABLES_FROM_PLAN=""
   if [ -n "${GM_SUBSET_PLAN_URL:-}" ] && curl -fsS "${GM_SUBSET_PLAN_URL}" -o /tmp/subset_plan.json 2>/dev/null && [ -s /tmp/subset_plan.json ]; then
     say "  using per-source subset plan from discovery"
     # Extract roots as "table	date_column" lines and populate the array.
@@ -162,6 +169,13 @@ plan = json.load(open('/tmp/subset_plan.json'))
 for tbl, col in sorted(plan.get('roots', {}).items()):
     print(f'{tbl}\t{col}')
 " 2>/dev/null)
+    # Extract skip_tables keys (table names) as a newline-separated list.
+    SKIP_TABLES_FROM_PLAN="$(python3 -c "
+import json
+plan = json.load(open('/tmp/subset_plan.json'))
+for tbl in sorted(plan.get('skip_tables', {}).keys()):
+    print(tbl)
+" 2>/dev/null)"
   fi
 
   # Fallback: if no plan was downloaded or it produced no roots, use defaults.
@@ -211,17 +225,6 @@ for tbl, col in sorted(plan.get('roots', {}).items()):
   for tbl in "${!SUBSET_ROOTS[@]}"; do
     exists="$($PSQL_T -A -t -c "SELECT to_regclass('public.${tbl}')" 2>/dev/null || true)"
     [ "$exists" = "$tbl" ] || [ "$exists" = "public.${tbl}" ] || continue
-    # Skip tables with very few rows -- they are config/master data, not
-    # transactional data worth date-pruning (e.g. website has 1-2 rows,
-    # pos_config has a handful). Pruning them would delete essential config.
-    # Use pg_class.reltuples (instant from stats) instead of count(*) to avoid
-    # scanning large tables. reltuples is -1 if never analyzed; treat that as
-    # "enough rows to try pruning".
-    row_est="$($PSQL_T -A -t -c "SELECT reltuples::bigint FROM pg_class WHERE relname='${tbl}' AND relnamespace='public'::regnamespace" 2>/dev/null || echo -1)"
-    if [ "${row_est:--1}" -ge 0 ] && [ "${row_est:--1}" -lt 500 ]; then
-      say "  skip prune (~${row_est} rows est): ${tbl}"
-      continue
-    fi
     for col in ${SUBSET_ROOTS[$tbl]}; do
       hit="$($PSQL_T -A -t -c "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='${tbl}' AND column_name='${col}' AND data_type IN ('date','timestamp without time zone','timestamp with time zone') LIMIT 1" 2>/dev/null || true)"
       if [ "$hit" = "1" ]; then
@@ -301,22 +304,35 @@ SQL
     #       delete the rest. This is safe because it runs AFTER the orphan sweep
     #       has already cleaned up dangling FK references.
     say "dump slimming: pruning unreferenced res_partner rows ..."
-    $PSQL_T -v ON_ERROR_STOP=1 <<'PSQLP'
-BEGIN;
-SET LOCAL session_replication_role = replica;
 
--- Step 1: collect all partner IDs directly referenced by surviving rows.
--- Seed with always-reachable partners: company partners, user partners.
--- These must survive the sweep regardless of which transactional tables
--- were pruned (res_company/res_users have very few rows but their
--- partner references are critical for Odoo to boot).
-CREATE TEMP TABLE _partner_direct ON COMMIT DROP AS
-SELECT DISTINCT pid FROM (
-  SELECT partner_id AS pid FROM res_company WHERE partner_id IS NOT NULL
-  UNION
-  SELECT partner_id AS pid FROM res_users WHERE partner_id IS NOT NULL
-) seed;
+    # Build SQL VALUES list from the subset plan's skip_tables. These tables
+    # retain all rows after subsetting, so their FK references to res_partner
+    # are not meaningful for partner reachability. Always include res_partner
+    # itself (self-reference, handled by the parent_id closure) -- it's a
+    # master table, not in skip_tables.
+    SKIP_VALS="('res_partner')"
+    if [ -n "${SKIP_TABLES_FROM_PLAN}" ]; then
+      for t in ${SKIP_TABLES_FROM_PLAN}; do
+        SKIP_VALS="${SKIP_VALS},('${t}')"
+      done
+    fi
 
+    # Shell-expanded SQL (creates temp tables and populates _skip_tables from
+    # the subset plan) is echoed; the PL/pgSQL blocks with dollar quotes are
+    # in a single-quoted heredoc (no expansion needed). Both are piped to a
+    # single psql session so temp tables persist.
+    {
+      echo "BEGIN;"
+      echo "SET LOCAL session_replication_role = replica;"
+      echo "CREATE TEMP TABLE _partner_direct ON COMMIT DROP AS"
+      echo "SELECT DISTINCT pid FROM ("
+      echo "  SELECT partner_id AS pid FROM res_company WHERE partner_id IS NOT NULL"
+      echo "  UNION"
+      echo "  SELECT partner_id AS pid FROM res_users WHERE partner_id IS NOT NULL"
+      echo ") seed;"
+      echo "CREATE TEMP TABLE _skip_tables(name text PRIMARY KEY) ON COMMIT DROP;"
+      echo "INSERT INTO _skip_tables VALUES ${SKIP_VALS};"
+      cat <<'PSQLP'
 DO $collect$
 DECLARE
   fk record;
@@ -330,49 +346,7 @@ BEGIN
     JOIN pg_attribute att  ON att.attrelid = con.conrelid  AND att.attnum = con.conkey[1]
     JOIN pg_attribute patt ON patt.attrelid = con.confrelid AND patt.attnum = con.confkey[1]
     WHERE pcl.relname = 'res_partner' AND con.contype = 'f'
-      -- Skip config/structural tables that retain all rows (their partner
-      -- refs are not meaningful for reachability after subsetting).
-      AND cl.relname NOT IN (
-        'ir_property',          -- generic property store, references everything
-        'res_partner',          -- self-reference (handled by parent_id closure)
-        'ir_sequence',          -- sequence config
-        'ir_model_data',        -- XML-id metadata
-        'ir_rule',              -- record rules
-        'ir_filters',           -- saved filters
-        'base_automation',      -- automation rules
-        'mail_alias',           -- mail aliases
-        'mail_alias_domain',    -- mail alias domains
-        'resource_resource',    -- resource records
-        'resource_calendar',    -- calendar config
-        'hr_employee',          -- employee master
-        'hr_department',        -- department master
-        'hr_job',               -- job positions
-        'utm_campaign', 'utm_medium', 'utm_source',  -- marketing config
-        'crm_team',             -- sales team config
-        'pos_config',           -- POS config
-        'pos_payment_method',   -- POS payment config
-        'delivery_carrier',     -- carrier config
-        'product_pricelist',    -- pricelist config
-        'account_analytic_account',  -- analytic account master
-        'account_journal',      -- journal master
-        'loyalty_card',         -- loyalty card master
-        'loyalty_program',      -- loyalty program config
-        'payment_token',        -- payment token master
-        'payment_provider',     -- payment provider config
-        'documents_folder',     -- documents folder config
-        'documents_tag',        -- documents tag config
-        'rating_rating',        -- ratings (keep for now, may reference partners)
-        'discuss_channel',      -- channel config
-        'calendar_event',       -- calendar (may have been pruned already)
-        'sla_claim',            -- SLA config
-        'stock_warehouse',      -- warehouse master
-        'stock_location',       -- location master
-        'stock_picking_type',   -- picking type config
-        'barcode_nomenclature', -- barcode config
-        'digest_digest',        -- digest config
-        'auth_oauth_provider',  -- OAuth provider config
-        'mail_template'         -- mail template config
-      )
+      AND cl.relname NOT IN (SELECT name FROM _skip_tables)
   LOOP
     BEGIN
       EXECUTE format(
@@ -388,13 +362,9 @@ END
 $collect$;
 
 -- Step 2: transitive closure over parent_id (company -> contact chains).
--- A partner is reachable if it's directly referenced, OR its parent is
--- reachable, OR it's a parent of a reachable partner.
 CREATE TEMP TABLE _partner_reachable(id bigint PRIMARY KEY) ON COMMIT DROP;
 INSERT INTO _partner_reachable SELECT pid FROM _partner_direct
 ON CONFLICT DO NOTHING;
--- Iteratively add parents and children until no new rows (fixpoint).
--- Two directions: walk up (partner -> parent) and down (parent -> children).
 DO $closure$
 DECLARE
   new_rows int;
@@ -404,14 +374,12 @@ BEGIN
   LOOP
     passes := passes + 1;
     new_rows := 0;
-    -- Walk up: add parent_id of any reachable partner
     INSERT INTO _partner_reachable
     SELECT p.parent_id FROM res_partner p
     JOIN _partner_reachable r ON p.id = r.id
     WHERE p.parent_id IS NOT NULL
     ON CONFLICT DO NOTHING;
     GET DIAGNOSTICS new_rows = ROW_COUNT;
-    -- Walk down: add partners whose parent is reachable
     INSERT INTO _partner_reachable
     SELECT p.id FROM res_partner p
     JOIN _partner_reachable r ON p.parent_id = r.id
@@ -438,6 +406,7 @@ $delete$;
 
 COMMIT;
 PSQLP
+    } | $PSQL_T -v ON_ERROR_STOP=1
     say "dump slimming: partner sweep complete"
 
     say "reclaiming space ..."
