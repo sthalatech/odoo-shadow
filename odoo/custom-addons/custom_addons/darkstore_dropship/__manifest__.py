@@ -27,7 +27,6 @@ This module is built incrementally; features are added step by step.
         'stock_dropshipping',
     ],
     'data': [
-        'security/ir.model.access.csv',
         'views/sale_order_views.xml',
     ],
     'installable': True,
