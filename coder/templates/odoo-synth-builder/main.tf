@@ -492,6 +492,10 @@ resource "aws_instance" "workspace" {
     Name                 = "odoo-synth-builder-${data.coder_parameter.issue.value}"
     "odoo-synth:builder" = data.coder_parameter.issue.value
     "odoo-synth:managed" = "true"
+    # C5 (DevOps review): the builder SelfTerminate IAM grant conditions on
+    # this tag, so only builder instances can self-terminate -- not the Coder
+    # server (control plane) or any dev workspace.
+    "odoo-synth:role"    = "builder"
   }
 }
 
