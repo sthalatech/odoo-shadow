@@ -342,6 +342,46 @@ def main() -> int:
         return 6
     _log(f"concurrency: {len(active)}/{max_concurrent} active workspaces (cap ok)")
 
+    # H5 (DevOps review): on reopened, reuse the existing workspace for this
+    # issue (if any) instead of creating a second one. The close webhook tears
+    # down the env, but if the issue was reopened before teardown completed
+    # (or the close webhook was missed), we should reuse rather than duplicate.
+    if os.environ.get("ISSUE_REOPENED") == "1":
+        existing = _envs_for_issue(issue_repo, issue_number)
+        live = [e for e in existing
+                if e.get("status") not in ("terminated", "deleted")]
+        if live:
+            env_id = live[0]["id"]
+            ws_name = live[0].get("workspace_name") or env_id
+            _log(f"reopened: reusing existing workspace {env_id} ({ws_name}) "
+                 f"for issue {issue_ref}")
+            # Jump to agent launch with the existing env
+            _log("env is running; staging agent context + launching agent")
+            task = _build_task(issue_ref, issue_title, issue_url, issue_body, pr_base)
+            agent = (profile.get("agent_name") or agent).strip() or "opencode"
+            system_prompt = (profile.get("agent_system_prompt") or "").strip()
+            if not system_prompt:
+                sp_path = REPO_ROOT / environments.AGENT_SYSTEM_PROMPT_PATH
+                try:
+                    if sp_path.exists():
+                        system_prompt = sp_path.read_text()
+                except Exception:  # noqa: BLE001
+                    pass
+            agent_timeout = int(os.environ.get("ODOO_SYNTH_AGENT_TIMEOUT", "3600") or "3600")
+            try:
+                res = environments.run_agent(
+                    env_id, task, agent=agent, max_iterations=max_iter,
+                    issue=issue_ref, system_prompt=system_prompt,
+                    timeout=agent_timeout)
+            except Exception as exc:  # noqa: BLE001
+                _log(f"ERROR: agent launch failed: {exc}")
+                return 4
+            _log(f"agent finished: exit={res['exit_code']} workspace={res['workspace']}")
+            if res["output"]:
+                _log("agent output (head):\n" + "\n".join(res["output"].splitlines()[:40]))
+            return 0
+        _log("reopened: no live workspace found for this issue; creating a new one")
+
     _log(f"creating env: name={label} issue={issue_ref} branch={repo_branch} "
          f"pr_base={pr_base}")
     try:

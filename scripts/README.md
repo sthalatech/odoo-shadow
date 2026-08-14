@@ -18,7 +18,11 @@ into a running odoo-synth workspace with an AI agent working on it:
    GitHub issue opened                Coder server (always-on EC2)
    in the addons repo   ──webhook──▶  webhook_listener.py (port 8080, public)
    (e.g. your-addons-repo)                │
+                                          │ H5: issue must have the `synth-sandbox` label
+                                          │ (only a maintainer can add it -> trust gate)
+                                          │
                                           │ issue.opened  -> issue_to_env.py (create + agent)
+                                          │ issue.reopened -> issue_to_env.py (reuse or create)
                                           │ issue.closed  -> issue_to_env.py --teardown (delete ws)
                                           ▼
                                      match repo URL -> profile (S3)   [opened]
@@ -27,6 +31,20 @@ into a running odoo-synth workspace with an AI agent working on it:
                                      ── or [closed] ──
                                      match (repo, issue #) -> `coder delete` (frees EC2)
 ```
+
+## H5: opt-in label gate
+
+The listener only acts on `issue.opened` / `issue.reopened` when the issue
+carries the `synth-sandbox` label (configurable via
+`ODOO_SYNTH_REQUIRED_LABEL`). This does two things:
+
+1. **Volume cap**: fifty issues don't create fifty instances -- only the ones
+   a maintainer explicitly opts in.
+2. **Security gate**: only a repo maintainer can add labels, so the prompt
+   author must be a maintainer, not anyone with a GitHub account.
+
+On `issue.reopened`, the launcher reuses the existing workspace for that
+issue (if it's still live) instead of creating a second one.
 
 - The Coder server is the only always-on box; a dev VM is ephemeral, so a
   webhook must not land on a dev VM.
