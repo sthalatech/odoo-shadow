@@ -26,14 +26,17 @@
 # infra/launch shape, different container image and no local-postgres-target
 # step.
 #
-# Privilege wall: this workspace uses the UNPRIVILEGED env instance profile
-# (odoo-synth-env-instance -> ECR pull only, NO source DB creds in the IAM,
-# NO ECR push, NO Secrets Manager). All source DB / SSH / git secrets travel in
-# the S3 env-file (presigned, short-lived), never as IAM perms and never baked
-# into the image. The builder profile (ECR push + Secrets + self-terminate) is
-# reserved for the odoo-synth-builder template and is never attached here.
-# Short-lived (poweroff after the mask) and has no inbound ports (egress-only;
-# the Coder agent dials out).
+# Privilege wall: this workspace uses the runner-instance role
+# (odoo-synth-runner-instance -> ECR pull + profile/* source-DB creds in the
+# IAM). All other source DB / SSH / git secrets travel in the S3 env-file
+# (presigned, short-lived), never baked into the image. The builder profile
+# (ECR push + Secrets + self-terminate) is reserved for the odoo-synth-builder
+# template and is never attached here. Short-lived (poweroff after the mask)
+# and has no inbound ports (egress-only; the Coder agent dials out).
+#
+# C4 (DevOps review): the runner-instance role is distinct from env-instance
+# (dev workspaces), which has NO profile/* access. Mask/discover need source
+# creds; dev sandboxes must not have them.
 #
 # Infra defaults mirror the env/builder templates (thin golden AMI, default-VPC
 # subnet, env SG by name) so `coder create` needs no infra params.
@@ -103,9 +106,12 @@ locals {
     local.default_ami_id,
   )
 
+  # C4 (DevOps review): masker needs source-DB creds (profile/* secrets) to
+  # connect to the production source. Use the runner-instance role, which
+  # grants profile/* access. The env-instance role (dev workspaces) does NOT.
   instance_profile = coalesce(
     data.coder_parameter.instance_profile.value,
-    "odoo-synth-env-instance",
+    "odoo-synth-runner-instance",
   )
 
   sg_id = coalesce(

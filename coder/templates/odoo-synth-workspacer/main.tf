@@ -267,6 +267,8 @@ locals {
   # ImageId), so fall back to the dynamically-resolved Ubuntu 22.04 AMI.
   ami_id           = length(data.coder_parameter.ami_id.value) > 0 ? data.coder_parameter.ami_id.value : data.aws_ami.ubuntu_2204.id
   sg_id            = length(data.coder_parameter.security_group_id.value) > 0 ? data.coder_parameter.security_group_id.value : (length(data.aws_security_groups.env_sg.ids) > 0 ? data.aws_security_groups.env_sg.ids[0] : "")
+  # C4 (DevOps review): dev workspaces use env-instance (NO profile/* source-DB
+  # creds). Masker/discoverer use runner-instance instead.
   instance_profile = length(data.coder_parameter.instance_profile.value) > 0 ? data.coder_parameter.instance_profile.value : "odoo-synth-env-instance"
   subnet_id        = length(data.coder_parameter.subnet_id.value) > 0 ? data.coder_parameter.subnet_id.value : (length(data.aws_subnets.default_vpc.ids) > 0 ? data.aws_subnets.default_vpc.ids[0] : "")
 

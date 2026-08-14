@@ -107,16 +107,23 @@ fi
 ENV_ROLE_NAME="${ENV_INSTANCE_PROFILE:-$PROJECT-env-instance}"
 ENV_ROLE_ARN="$(aws iam get-role --role-name "$ENV_ROLE_NAME" \
   --query 'Role.Arn' --output text 2>/dev/null || true)"
+# C4 (DevOps review): the runner-instance role (masker/discoverer) needs
+# profile/* source-DB creds, so it is a separate role from env-instance. The
+# Coder server launches masker/discoverer workspaces that assume it, so it
+# needs iam:PassRole on the runner role too.
+RUNNER_ROLE_NAME="${RUNNER_INSTANCE_PROFILE:-$PROJECT-runner-instance}"
+RUNNER_ROLE_ARN="$(aws iam get-role --role-name "$RUNNER_ROLE_NAME" \
+  --query 'Role.Arn' --output text 2>/dev/null || true)"
 # Option E: the Coder server also launches BUILDER workspaces, which assume
 # the odoo-synth-builder role (distinct from the env role -- ECR push + S3 +
 # Secrets + self-terminate). The server needs iam:PassRole on it too.
 BUILDER_ROLE="${BUILDER_ROLE:-$PROJECT-builder}"
 BUILDER_ROLE_ARN="$(aws iam get-role --role-name "$BUILDER_ROLE" \
   --query 'Role.Arn' --output text 2>/dev/null || true)"
-POLICY_DOC="$(python3 - "$AWS_REGION" "$ACCOUNT_ID" "$ENV_ROLE_ARN" "$BUILDER_ROLE_ARN" <<'PYDOC'
+POLICY_DOC="$(python3 - "$AWS_REGION" "$ACCOUNT_ID" "$ENV_ROLE_ARN" "$BUILDER_ROLE_ARN" "$RUNNER_ROLE_ARN" <<'PYDOC'
 import json, sys
-region, acct, env_role_arn, builder_role_arn = sys.argv[1:5]
-pass_roles = [r for r in (env_role_arn, builder_role_arn) if r] or ["arn:aws:iam::*:role/*"]
+region, acct, env_role_arn, builder_role_arn, runner_role_arn = sys.argv[1:6]
+pass_roles = [r for r in (env_role_arn, builder_role_arn, runner_role_arn) if r] or ["arn:aws:iam::*:role/*"]
 print(json.dumps({
   "Version": "2012-10-17",
   "Statement": [
@@ -126,9 +133,10 @@ print(json.dumps({
                 "ec2:CreateTags","ec2:DeleteTags"],
      "Resource": "*"},
     # PassRole targets the ROLE the workspace VM assumes (not its instance profile).
-    # Covers both the dev-env role (shared by odoo-synth-workspacer,
-    # odoo-synth-discoverer, odoo-synth-masker) and the builder role, so the
-    # Coder server can provision workspaces from all four templates.
+    # Covers the dev-env role (odoo-synth-workspacer), the runner role
+    # (odoo-synth-discoverer, odoo-synth-masker -- C4 split), and the builder
+    # role (odoo-synth-builder), so the Coder server can provision workspaces
+    # from all four templates.
     {"Sid": "PassWorkspaceRoles", "Effect": "Allow",
      "Action": ["iam:PassRole"],
      "Resource": pass_roles},
