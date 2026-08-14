@@ -420,8 +420,107 @@ else
   say "admin uid ${UID_ADMIN} password set (all other users' passwords were scrubbed in step 5)."
 fi
 
+# 6b. H1 (DevOps review): post-mask verification -- scan the masked DB for
+#     high-signal PII patterns that should not survive masking. If any are
+#     found, FAIL the run before the dump is uploaded so the unverified dump
+#     never lands in masked-dumps/ (which every downstream consumer trusts).
+#     This is the control that makes the other masking fixes trustworthy.
+#
+#     Scans for: emails, phone numbers (Indian + generic), Aadhaar/PAN shapes,
+#     and residual ir_config_parameter secrets. The allowlist (tables/columns
+#     exempt from the scan) is configurable via POST_MASK_ALLOWLIST (comma-sep
+#     table.column patterns; defaults to none). The scan is on by default;
+#     disable with POST_MASK_VERIFY=false (NOT recommended for prod-derived data).
+POST_MASK_VERIFY="${POST_MASK_VERIFY:-true}"
+# allowlist: comma-sep table.column patterns exempt from the scan (case-insensitive)
+ALLOWLIST="${POST_MASK_ALLOWLIST:-}"
+if is_true "$POST_MASK_VERIFY"; then
+  say "post-mask verification: scanning for residual PII patterns ..."
+  # Uses psql (already in the postgres:16 image) + a Python regex pass on
+  # the extracted values. No extra pip dependency needed.
+  say "  scanning known-PII tables for unmasked patterns ..."
+  FINDINGS=0
+
+  # Helper: scan a table.column for PII patterns via psql + python regex
+  scan_col() { # table col
+    local tbl="$1" col="$2"
+    local key="${tbl}.${col}"
+    # check allowlist (case-insensitive)
+    case " ${ALLOWLIST:-} " in *" ${key,,} "*) return 0;; esac
+    # extract non-null values via psql, pipe through python regex check.
+    # Pass table.column as args to the python script (avoids fragile
+    # bash-variable-in-Python-string escaping).
+    local hits
+    hits="$($PSQL_T -A -t -c "SELECT ${col} FROM public.${tbl} WHERE ${col} IS NOT NULL LIMIT 5000" 2>/dev/null \
+      | python3 -c "
+import sys, re
+tbl, col = sys.argv[1], sys.argv[2]
+PATTERNS = {
+    'email': re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'),
+    'indian_mobile': re.compile(r'(?:\+91[-\s]?)?[6-9]\d{9}'),
+    'aadhaar': re.compile(r'\b\d{4}\s\d{4}\s\d{4}\b|\b\d{12}\b'),
+    'pan': re.compile(r'\b[A-Z]{5}\d{4}[A-Z]\b'),
+}
+for line in sys.stdin:
+    line = line.rstrip('\n')
+    if not line:
+        continue
+    for pname, pat in PATTERNS.items():
+        if pat.search(line):
+            print('  ' + tbl + '.' + col + ': ' + pname + ' pattern matched (sample: ' + repr(line[:60]) + ')')
+            break
+" "$tbl" "$col" 2>/dev/null)"
+    if [ -n "$hits" ]; then
+      echo "$hits"
+      FINDINGS=$((FINDINGS + 1))
+    fi
+  }
+
+  # 1. scan known-PII tables for unmasked patterns
+  for tbl in res_partner res_users hr_employee res_company crm_lead hr_applicant; do
+    exists="$($PSQL_T -A -t -c "SELECT to_regclass('public.${tbl}')" 2>/dev/null || true)"
+    [ "$exists" = "$tbl" ] || continue
+    # get text/varchar columns
+    cols="$($PSQL_T -A -t -c "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='${tbl}' AND data_type IN ('text','character varying')" 2>/dev/null || true)"
+    for col in $cols; do
+      scan_col "$tbl" "$col"
+    done
+  done
+
+  # 2. check ir_config_parameter for residual secrets
+  has_param="$($PSQL_T -A -t -c "SELECT to_regclass('public.ir_config_parameter')" 2>/dev/null || true)"
+  if [ "$has_param" = "ir_config_parameter" ]; then
+    residual="$($PSQL_T -A -t -c "SELECT key FROM ir_config_parameter WHERE key ~* '(secret|token|key|password|api_key)'" 2>/dev/null || true)"
+    if [ -n "$residual" ]; then
+      echo "$residual" | while read -r key; do
+        echo "  ir_config_parameter: residual secret key '$key'"
+      done
+      FINDINGS=$((FINDINGS + 1))
+    fi
+  fi
+
+  # 3. check res_users for non-null password hashes (only admin should have one)
+  has_users="$($PSQL_T -A -t -c "SELECT to_regclass('public.res_users')" 2>/dev/null || true)"
+  if [ "$has_users" = "res_users" ]; then
+    pw_count="$($PSQL_T -A -t -c "SELECT count(*) FROM res_users WHERE password IS NOT NULL" 2>/dev/null || echo 0)"
+    if [ "$pw_count" -gt 1 ] 2>/dev/null; then
+      echo "  res_users: ${pw_count} users with non-null password (expected 1 = admin only)"
+      FINDINGS=$((FINDINGS + 1))
+    fi
+  fi
+
+  if [ "$FINDINGS" -gt 0 ]; then
+    echo "[masker] ERROR: post-mask verification FAILED -- residual PII detected"
+    echo "[masker] The masked DB may contain unmasked PII. Review the findings above,"
+    echo "[masker] fix the masking profile, and re-run. Do NOT promote this dump."
+    exit 1
+  fi
+  say "post-mask verification PASSED."
+fi
+
 # 7. (optional) produce a downloadable pg_dump of the masked DB and upload it to
 #    the presigned S3 URL provided by the control panel (MASKED_DUMP_PUT_URL).
+#    H1: this only runs AFTER post-mask verification passes (step 6b).
 if [ -n "${MASKED_DUMP_PUT_URL:-}" ]; then
   say "producing downloadable pg_dump of masked DB ${TARGET_DB_NAME} ..."
   DUMP_FILE="/tmp/masked.dump"

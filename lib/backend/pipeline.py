@@ -438,6 +438,8 @@ def _mask_env_pairs(src: dict, tgt: dict, params: dict,
         # C2: credential scrubbing (ir_config_parameter secrets, res_users
         # passwords, totp_secret, API keys, 2FA devices). On by default.
         ("NEUTRALIZE_SECRETS", flag("neutralize_secrets", nd.get("secrets", True))),
+        # H1: post-mask verification (scan for residual PII patterns). On by default.
+        ("POST_MASK_VERIFY", flag("post_mask_verify", nd.get("post_mask_verify", True))),
         ("RESET_ADMIN_LOGIN", flag("reset_admin_login",
                                   config.panel().get("reset_admin_login", True))),
     ]

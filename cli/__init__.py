@@ -247,6 +247,11 @@ def _add_mask_args(p: argparse.ArgumentParser) -> None:
                    action="store_true", default=None)
     p.add_argument("--no-neutralize-secrets", dest="neutralize_secrets",
                    action="store_false")
+    # H1: post-mask verification (scan for residual PII patterns). On by default.
+    p.add_argument("--post-mask-verify", dest="post_mask_verify",
+                   action="store_true", default=None)
+    p.add_argument("--no-post-mask-verify", dest="post_mask_verify",
+                   action="store_false")
     p.add_argument("--reset-admin-login", dest="reset_admin_login",
                    action="store_true", default=None)
     p.add_argument("--no-reset-admin-login", dest="reset_admin_login",
@@ -541,6 +546,7 @@ def _mask_params_from_legacy(args) -> dict:
         "neutralize_payment": args.neutralize_payment,
         "neutralize_smtp_param": args.neutralize_smtp_param,
         "neutralize_secrets": args.neutralize_secrets,
+        "post_mask_verify": args.post_mask_verify,
         "reset_admin_login": args.reset_admin_login,
         "produce_dump": bool(args.produce_dump),
         "subset_days": args.subset_days,
@@ -602,7 +608,7 @@ def _mask_profile(profile_id: str, args) -> int:
     for _k in ("mask_profile", "admin_password", "gm_jobs", "subset_days",
                "exclude_table_data", "neutralize_mail", "neutralize_fetchmail",
                "neutralize_payment", "neutralize_smtp_param", "neutralize_secrets",
-               "reset_admin_login"):
+               "post_mask_verify", "reset_admin_login"):
         _v = getattr(args, _k, None)
         if _v is not None:
             overrides[_k] = _v
