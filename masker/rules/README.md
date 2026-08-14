@@ -1,5 +1,21 @@
 # odoo-synth rulebook
 
+> **Status (C1 — DevOps review):** This rulebook is a **specification ahead of
+> implementation.** Nothing in the masker pipeline currently reads these files.
+> The masker (`entrypoint.sh`) loads only `profiles/*.yml` or the
+> discovery-generated profile from `MASK_RULES_URL`. The `rules scan` /
+> `rules diff` commands described below are not yet in the CLI.
+>
+> To avoid the false-confidence posture where policy reads as enforced but
+> isn't, `rules/` is no longer copied into the masker Docker image (C1 fix).
+> The long-term plan is a compiler step that reads this rulebook + the live
+> schema and emits the greenmask `dump.transformation` list, replacing
+> hand-maintained profiles as the default path. Until then, treat these files
+> as the authoritative spec for what *should* be masked, and use the
+> `profiles/*.yml` files (or the discovery-generated profile) as what actually
+> *is* masked.
+
+
 This directory is the actual community deliverable. The masking *engine*
 (`anon` extension) already exists and is maintained by people who know
 Postgres internals far better than an Odoo-focused project needs to.

@@ -33,7 +33,15 @@ RUN set -eu; \
     greenmask --version
 
 WORKDIR /work
-COPY rules/ /work/rules/
+# C1 (DevOps review): rules/ is NOT copied into the image. The rulebook
+# (masker/rules/*.yml) is a well-reasoned policy specification that nothing in
+# the masker pipeline currently reads -- entrypoint.sh only loads profiles/*.yml
+# or the discovery-generated profile. Shipping it in the image reads as
+# "enforced" when it isn't, which is the worst posture (reviewers trust policy
+# that isn't active). It remains in the repo as a spec ahead of implementation;
+# see masker/rules/README.md for the status. The long-term fix is a compiler
+# step that reads rules/*.yml + the live schema and emits the greenmask
+# dump.transformation list, replacing hand-maintained profiles as the default.
 COPY profiles/ /work/profiles/
 COPY greenmask.tmpl.yml /work/greenmask.tmpl.yml
 COPY entrypoint.sh /work/entrypoint.sh

@@ -27,6 +27,13 @@ dump:
         - {name: Replace, params: {column: complete_name, value: "REDACTED NAME", keep_null: true}}
         - {name: RandomEmail, params: {column: email, keep_null: true}}
         - {name: RandomE164PhoneNumber, params: {column: phone, keep_null: true}}
+        # C1 (DevOps review): the v0.1.0 run found these cache-field leaks.
+        # 10_core.yml documents them -- res_partner.mobile, email_normalized,
+        # and phone_sanitized are denormalized copies of the primary PII fields
+        # that must be masked in lockstep with their source columns.
+        - {name: RandomE164PhoneNumber, params: {column: mobile, keep_null: true}}
+        - {name: RandomEmail, params: {column: email_normalized, keep_null: true}}
+        - {name: RandomE164PhoneNumber, params: {column: phone_sanitized, keep_null: true}}
         - {name: Hash, params: {column: street}}
         - {name: Hash, params: {column: street2}}
         - {name: Hash, params: {column: city}}
