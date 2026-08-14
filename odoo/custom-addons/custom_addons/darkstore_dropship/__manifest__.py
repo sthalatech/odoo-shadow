@@ -28,6 +28,7 @@ This module is built incrementally; features are added step by step.
     ],
     'data': [
         'security/ir.model.access.csv',
+        'views/sale_order_views.xml',
     ],
     'installable': True,
     'auto_install': False,
