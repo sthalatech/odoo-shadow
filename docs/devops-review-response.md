@@ -199,24 +199,93 @@ lands in `masked-dumps/` — every downstream consumer trusts that prefix.
 - `cli/__init__.py`: added `--post-mask-verify`/`--no-post-mask-verify`
   flags.
 
+**What was NOT done (and why):**
+- **Canary records:** the review suggested "seed canary records in the
+  source before dumping, then assert those exact values are absent
+  afterwards." This would require writing INSERT statements to the source DB
+  before the masker runs, which conflicts with the read-only source-DB
+  principle (see assumption 4). The pattern-based scan + the C3 fail-closed
+  default together provide equivalent coverage: C3 ensures every unclassified
+  text column gets `Masking("default")` (so there are no silent pass-through
+  gaps for canaries to catch), and the H1 scan independently verifies the
+  result. The canary approach is a worthwhile future enhancement for columns
+  that *should* keep their shape but *should not* keep their value (e.g.
+  `email` → `RandomEmail` — a canary would confirm the value changed even
+  though the shape survived); the pattern scan can't detect that case.
+- **Quarantine prefix:** the review suggested "write to a quarantine prefix
+  first and only promote to `masked-dumps/` on a pass." Our implementation is
+  simpler and equally safe: verification runs *before* the dump is uploaded,
+  so a failed verification produces no artifact at all (nothing to
+  quarantine). The dump only lands in `masked-dumps/` when verification
+  passes. See assumption 5 for more on this.
+
 ---
 
 ## Assumptions from the review
 
-The review listed five assumptions it asked us to check. Responses:
+The review listed five assumptions it asked us to check. Each was verified
+against the codebase:
 
-1. **Is the IRS component set current?** — Yes, `examples/multi-repo/components.yaml`
-   is the current IRS wiring.
-2. **Is there a compiler step for the rulebook?** — No, confirmed. The
-   rulebook is a spec ahead of implementation (C1 fix documents this
-   explicitly now).
-3. **Does the workspacer need the `profile/*` Secrets Manager grant?** — No.
-   Confirmed by the C4 fix: the workspacer only needs masked-dump read +
-   ECR pull + its own `env/*` secrets.
-4. **What does `SOURCE_DB_HOST` point at?** — During the POC, a snapshot
-   restored to a temporary instance, never the production primary.
-5. **Cost figures (ap-south-1, ~10 concurrent sandboxes)?** — The H2
-   concurrency cap defaults to 10, matching the review's assumption.
+### 1. Is the IRS component set current?
+
+**Yes.** `examples/multi-repo/components.yaml` is the validated 5-repo IRS
+wiring: `prs-backend` (Odoo), `prs-facade`, `prs-worker`, `prs-frontend`,
+`irs-admin-frontend`. The file header says "Real 5-repo setup validated during
+multi-repo design." The most recent change to this file (`409b676`) was an
+explicit drift fix to keep the example in sync with the live profile after
+`facade.expose.path` was reverted — and the commit message notes that "a fresh
+`profile create` from this file is supposed to reproduce the validated, working
+configuration exactly." No action needed.
+
+### 2. Is there a compiler step for the rulebook?
+
+**No, confirmed.** Nothing in the codebase reads `masker/rules/*.yml` as an
+input. `masker/entrypoint.sh` loads only `profiles/<MASK_PROFILE>.yml` (baked
+or downloaded via `MASK_RULES_URL`). `discovery/gen_masking.py` generates
+greenmask profiles from schema introspection, not from the rulebook. The C1
+fix documents this explicitly in `masker/rules/README.md`: the rulebook is a
+specification ahead of implementation, not enforced policy.
+
+### 3. Does the workspacer need the `profile/*` Secrets Manager grant?
+
+**No.** The workspacer's `startup_script` only reads the masked dump from S3
+(`aws s3 cp "$DUMP_S3_URI"`) and pulls the Odoo ECR image — both of which need
+only S3 read + ECR pull, not `profile/*` (source DB password / bastion SSH key).
+The `profile/*` secrets are only needed by the masker and discoverer, which
+connect to the source DB. The C4 fix formalizes this: the workspacer defaults
+to `env-instance` (no `profile/*`), and the masker/discoverer default to the
+new `runner-instance` role (with `profile/*`).
+
+### 4. What does `SOURCE_DB_HOST` point at?
+
+**During the POC: a snapshot restored to a temporary RDS instance, never the
+production primary.** The masker's source-DB access is read-only in practice
+(`pg_dump` + greenmask extraction only — no `UPDATE`/`INSERT`/`DDL` against
+the source), but the code does not enforce this: it connects with whatever
+credentials are provided, and there is no `SET TRANSACTION READ ONLY` guard or
+warning if the host looks like a production endpoint.
+
+**Action taken:** none in this branch (the review asked a question, not for a
+code change). But for the pilot, the operational requirement is documented
+here: the source DSN provided to `odoo-synth profile create` must point at a
+snapshot/temporary instance, not the production primary. A future hardening
+item is to add a `SET TRANSACTION READ ONLY` guard in the masker's preflight
+or to require a dedicated read-only DB user, so the system enforces what is
+currently only operational practice.
+
+### 5. Cost figures (ap-south-1, ~10 concurrent sandboxes)?
+
+**Region:** the deploy scripts default to the AWS CLI's configured region
+(`deploy/00_setup.sh:148` falls back to `us-east-1` if none is set). The
+review's `ap-south-1` assumption is an operator choice, not a code default —
+the region is prompted during `deploy/00_setup.sh` and stored in
+`~/.aws/config`. For the pilot, the operator should set `ap-south-1` if
+that's where the source DB and sandboxes will live.
+
+**Concurrency:** the H2 concurrency cap defaults to 10
+(`ODOO_SYNTH_MAX_CONCURRENT`, `scripts/issue_to_env.py:335`), matching the
+review's assumption of ~10 concurrent sandboxes. This is configurable if the
+pilot needs more or fewer.
 
 ---
 
