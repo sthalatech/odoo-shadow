@@ -435,6 +435,9 @@ def _mask_env_pairs(src: dict, tgt: dict, params: dict,
         ("NEUTRALIZE_FETCHMAIL", flag("neutralize_fetchmail", nd.get("fetchmail", True))),
         ("NEUTRALIZE_PAYMENT", flag("neutralize_payment", nd.get("payment", True))),
         ("NEUTRALIZE_SMTP_PARAM", flag("neutralize_smtp_param", nd.get("smtp_param", True))),
+        # C2: credential scrubbing (ir_config_parameter secrets, res_users
+        # passwords, totp_secret, API keys, 2FA devices). On by default.
+        ("NEUTRALIZE_SECRETS", flag("neutralize_secrets", nd.get("secrets", True))),
         ("RESET_ADMIN_LOGIN", flag("reset_admin_login",
                                   config.panel().get("reset_admin_login", True))),
     ]

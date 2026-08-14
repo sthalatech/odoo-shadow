@@ -240,6 +240,13 @@ def _add_mask_args(p: argparse.ArgumentParser) -> None:
                    action="store_true", default=None)
     p.add_argument("--no-neutralize-smtp-param", dest="neutralize_smtp_param",
                    action="store_false")
+    # C2: credential scrubbing (ir_config_parameter secrets, res_users password
+    # hashes, totp_secret, API keys, 2FA devices). On by default -- security
+    # hygiene, not PII, and there's no reason to ever turn it off for a dev copy.
+    p.add_argument("--neutralize-secrets", dest="neutralize_secrets",
+                   action="store_true", default=None)
+    p.add_argument("--no-neutralize-secrets", dest="neutralize_secrets",
+                   action="store_false")
     p.add_argument("--reset-admin-login", dest="reset_admin_login",
                    action="store_true", default=None)
     p.add_argument("--no-reset-admin-login", dest="reset_admin_login",
@@ -533,6 +540,7 @@ def _mask_params_from_legacy(args) -> dict:
         "neutralize_fetchmail": args.neutralize_fetchmail,
         "neutralize_payment": args.neutralize_payment,
         "neutralize_smtp_param": args.neutralize_smtp_param,
+        "neutralize_secrets": args.neutralize_secrets,
         "reset_admin_login": args.reset_admin_login,
         "produce_dump": bool(args.produce_dump),
         "subset_days": args.subset_days,
@@ -593,7 +601,8 @@ def _mask_profile(profile_id: str, args) -> int:
     # run_params() filters None overrides, so this is a pure override.
     for _k in ("mask_profile", "admin_password", "gm_jobs", "subset_days",
                "exclude_table_data", "neutralize_mail", "neutralize_fetchmail",
-               "neutralize_payment", "neutralize_smtp_param", "reset_admin_login"):
+               "neutralize_payment", "neutralize_smtp_param", "neutralize_secrets",
+               "reset_admin_login"):
         _v = getattr(args, _k, None)
         if _v is not None:
             overrides[_k] = _v

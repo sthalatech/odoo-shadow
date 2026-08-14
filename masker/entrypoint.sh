@@ -298,13 +298,29 @@ fi
 
 # 5. neutralize (guard each table: modules like fetchmail/payment may be absent)
 #    each step is individually toggleable via NEUTRALIZE_* env vars.
-say "neutralizing (mail=${NEUTRALIZE_MAIL} fetchmail=${NEUTRALIZE_FETCHMAIL} payment=${NEUTRALIZE_PAYMENT} smtp_param=${NEUTRALIZE_SMTP_PARAM} crons=${NEUTRALIZE_CRONS}) ..."
-export N_MAIL N_FETCH N_PAY N_SMTP N_CRON
+#
+# C2 (DevOps review): the neutralize block previously covered mail/fetchmail/cron
+# correctly but left critical credential tables partially or fully unscrubbed:
+#   * ir_config_parameter: only one key (mail.force.smtp.from) was zeroed --
+#     third-party API keys/tokens, database.secret (signs session cookies +
+#     reset tokens), and database.uuid were left intact.
+#   * payment_provider: state was disabled but gateway credential VALUES stayed.
+#   * res_users: only the admin password was reset -- every other user's password
+#     hash and totp_secret (real 2FA seeds) were left in place.
+#   * res_users_apikeys + auth_totp_device: nothing was done at all.
+# The rulebook (rules/60_system_secrets.yml) has the full spec; this block now
+# implements it. See the review's C2 table for the before/after.
+say "neutralizing (mail=${NEUTRALIZE_MAIL} fetchmail=${NEUTRALIZE_FETCHMAIL} payment=${NEUTRALIZE_PAYMENT} smtp_param=${NEUTRALIZE_SMTP_PARAM} crons=${NEUTRALIZE_CRONS} secrets=${NEUTRALIZE_SECRETS}) ..."
+export N_MAIL N_FETCH N_PAY N_SMTP N_CRON N_SECRETS
 is_true "$NEUTRALIZE_MAIL"      && N_MAIL=1  || N_MAIL=0
 is_true "$NEUTRALIZE_FETCHMAIL" && N_FETCH=1 || N_FETCH=0
 is_true "$NEUTRALIZE_PAYMENT"   && N_PAY=1   || N_PAY=0
 is_true "$NEUTRALIZE_SMTP_PARAM" && N_SMTP=1 || N_SMTP=0
 is_true "$NEUTRALIZE_CRONS"     && N_CRON=1  || N_CRON=0
+# C2: credential scrubbing is on by default -- it's security hygiene, not PII,
+# and there's no reason to ever turn it off for a dev replica.
+NEUTRALIZE_SECRETS="${NEUTRALIZE_SECRETS:-true}"
+is_true "$NEUTRALIZE_SECRETS"   && N_SECRETS=1 || N_SECRETS=0
 $PSQL_T <<SQL
 DO \$\$ BEGIN
   IF ${N_MAIL} = 1 AND to_regclass('public.ir_mail_server') IS NOT NULL THEN
@@ -314,7 +330,27 @@ DO \$\$ BEGIN
     EXECUTE 'UPDATE fetchmail_server SET active=false, password=NULL, "user"=NULL';
   END IF;
   IF ${N_PAY} = 1 AND to_regclass('public.payment_provider') IS NOT NULL THEN
+    -- C2: disable AND null the credential columns (the values were left intact
+    -- before). Covers the standard Odoo payment_provider columns; the column
+    -- existence is checked dynamically so this works across Odoo versions.
     UPDATE payment_provider SET state='disabled';
+    -- null every credential-shaped column on payment_provider
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='payment_provider' AND column_name='payment_token') THEN
+      UPDATE payment_provider SET payment_token = NULL;
+    END IF;
+    -- Odoo payment_provider has a jsonb 'payment_method_ids' but the actual
+    -- gateway secrets live in provider-specific columns. The generic approach:
+    -- null any column whose name matches the secret regex from 60_system_secrets.
+    EXECUTE 'UPDATE payment_provider SET ' || (
+      SELECT string_agg(col || '=NULL', ', ')
+      FROM (
+        SELECT column_name AS col FROM information_schema.columns
+        WHERE table_name='payment_provider'
+          AND column_name ~* '(secret|token|key|password|api_key|access_key|client_secret)'
+      ) s
+    ) WHERE EXISTS (SELECT 1 FROM information_schema.columns
+      WHERE table_name='payment_provider'
+        AND column_name ~* '(secret|token|key|password|api_key|access_key|client_secret)');
   END IF;
   IF ${N_SMTP} = 1 AND to_regclass('public.ir_config_parameter') IS NOT NULL THEN
     UPDATE ir_config_parameter SET value='0' WHERE key='mail.force.smtp.from' AND value IS NOT NULL;
@@ -326,10 +362,47 @@ DO \$\$ BEGIN
       DELETE FROM ir_cron_trigger;  -- drop any queued immediate triggers too
     END IF;
   END IF;
+  -- C2: credential scrubbing (rules/60_system_secrets.yml is the spec)
+  IF ${N_SECRETS} = 1 THEN
+    -- 1. ir_config_parameter: delete rows matching the secret/token/key regex
+    --    (from 60_system_secrets.yml), then regenerate database.secret +
+    --    database.uuid fresh so the dev DB can't forge signed session cookies
+    --    or be mistaken for the production instance by IAP/licensing.
+    IF to_regclass('public.ir_config_parameter') IS NOT NULL THEN
+      DELETE FROM ir_config_parameter
+        WHERE key ~* '(secret|token|key|password|api_key|access_key|client_secret)';
+      -- regenerate database.secret (signs session cookies + reset tokens)
+      DELETE FROM ir_config_parameter WHERE key='database.secret';
+      INSERT INTO ir_config_parameter (key, value, create_uid, write_uid, create_date, write_date)
+        VALUES ('database.secret', gen_random_bytes(32)::text, 1, 1, now(), now());
+      -- regenerate database.uuid (Odoo registration identity)
+      DELETE FROM ir_config_parameter WHERE key='database.uuid';
+      INSERT INTO ir_config_parameter (key, value, create_uid, write_uid, create_date, write_date)
+        VALUES ('database.uuid', gen_random_uuid()::text, 1, 1, now(), now());
+    END IF;
+    -- 2. res_users: scrub password + totp_secret across ALL rows (not just
+    --    admin). The admin password reset in step 6 sets a known-good hash
+    --    after this; every other user gets a NULL password (can't log in).
+    IF to_regclass('public.res_users') IS NOT NULL THEN
+      UPDATE res_users SET password = NULL;
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='res_users' AND column_name='totp_secret') THEN
+        UPDATE res_users SET totp_secret = NULL;
+      END IF;
+    END IF;
+    -- 3. truncate API key records + 2FA device records
+    IF to_regclass('public.res_users_apikeys') IS NOT NULL THEN
+      DELETE FROM res_users_apikeys;
+    END IF;
+    IF to_regclass('public.auth_totp_device') IS NOT NULL THEN
+      DELETE FROM auth_totp_device;
+    END IF;
+  END IF;
 END \$\$;
 SQL
 
 # 6. set admin password (pbkdf2-sha512, Odoo passlib scheme)
+#    C2: step 5 already scrubbed ALL res_users.password/totp_secret to NULL;
+#    this sets a known-good hash for the admin user only so the dev can log in.
 say "setting admin password ..."
 HASH="$(python3 - "$ODOO_ADMIN_PASSWORD" <<'PY'
 import sys
@@ -341,10 +414,10 @@ UID_ADMIN="$($PSQL_T -A -t -c "SELECT res_id FROM ir_model_data WHERE module='ba
 [ -n "$UID_ADMIN" ] || UID_ADMIN=2
 if is_true "$RESET_ADMIN_LOGIN"; then
   $PSQL_T -c "UPDATE res_users SET password='${HASH}', login='admin' WHERE id=${UID_ADMIN};"
-  say "admin uid ${UID_ADMIN} password + login('admin') set."
+  say "admin uid ${UID_ADMIN} password + login('admin') set (all other users' passwords were scrubbed in step 5)."
 else
   $PSQL_T -c "UPDATE res_users SET password='${HASH}' WHERE id=${UID_ADMIN};"
-  say "admin uid ${UID_ADMIN} password set (login unchanged)."
+  say "admin uid ${UID_ADMIN} password set (all other users' passwords were scrubbed in step 5)."
 fi
 
 # 7. (optional) produce a downloadable pg_dump of the masked DB and upload it to
