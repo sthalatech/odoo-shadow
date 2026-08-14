@@ -12,8 +12,15 @@ by column shape + name.
 The operator reviews/edits this YAML before masking runs; the masker downloads
 it and uses it verbatim (after envsubst) instead of the baked profile.
 
-Best-effort: a column we cannot classify is left untouched (it passes through
-greenmask unchanged, exactly as today).
+C3 (DevOps review) -- fail-closed default: any ``text``/``varchar`` column
+that is not explicitly declared ``keep`` (structural identifier, FK, selection,
+unique key, or in the _SKIP_COLUMNS / _SKIP_TABLES allowlists) gets
+``Masking(default)`` -- the redact_freetext equivalent. This inverts the
+previous "unclassified = left untouched" posture so that unknown custom addon
+columns (``x_notes``, ``applicant_comment``, ...) are redacted by default
+rather than passing through in the clear. The operator reviews the generated
+profile and removes transformers from the ~30 fields they need for realistic
+dev data, turning an unbounded audit into a bounded, self-limiting task.
 """
 from __future__ import annotations
 
@@ -483,7 +490,14 @@ def transformer_for(column: str, dtype: str, fk_target: str | None,
         else:
             tmpl = "{{ .FirstName }} {{ .LastName }}"
         return {"name": "RandomPerson", "column": column, "template": tmpl}
-    # generic free-text (notes, comments, description, ...) -> default masking
+    # C3 (DevOps review) -- FAIL-CLOSED default: any text/varchar column that
+    # didn't match a specific PII pattern (email, phone, name, ...) gets
+    # Masking("default") -- the redact_freetext equivalent. This is the inverted
+    # default: unknown custom addon columns (x_notes, applicant_comment, ...)
+    # are redacted rather than passing through in the clear. The operator
+    # reviews the generated profile and removes transformers from fields they
+    # need for realistic dev data (a bounded exception-list review, not an
+    # unbounded "audit every column" task).
     return _mask("default")
 
 
@@ -543,8 +557,9 @@ def _render_greenmask(table_transformers: dict[str, list[dict]],
         "# greenmask masking profile (auto-generated during provenance discovery).",
         "# Transformers were derived from the LIVE source schema: PII-shaped text",
         "# columns on public tables are masked. Review/edit before masking runs.",
-        "# Columns not listed pass through unchanged. FKs and bytea are skipped",
-        "# (the referenced row is masked at its own table).",
+        "# C3: unclassified text columns get Masking(default) (fail-closed) -- they",
+        "# do NOT pass through unchanged. FKs, bytea, selection fields, unique keys,",
+        "# and _SKIP_COLUMNS/_SKIP_TABLES are the only columns left unmasked.",
         "#",
         "# Rendered by the masker via envsubst (${SOURCE_DB_*}/${GM_STORAGE}/${GM_JOBS}).",
         "common:",
