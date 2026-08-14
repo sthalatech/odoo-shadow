@@ -385,6 +385,33 @@ resource "coder_agent" "main" {
       fi
     fi
 
+    # --- 2b. extend Odoo subscription/expiration date ---
+    # The masked dump carries the source DB's expiration_date (often expired
+    # or in trial state). Without extending, Odoo shows a subscription
+    # banner / blocks login. Set expiration to 30 days from now and clear
+    # the trial reason so the workspace is usable.
+    if [ -n "$DB_NAME" ]; then
+      EXP_DATE=$(date -u -d "+30 days" '+%Y-%m-%d %H:%M:%S')
+      docker exec env-db psql -U odoo -d "$DB_NAME" -c \
+        "UPDATE ir_config_parameter SET value='$EXP_DATE' WHERE key='database.expiration_date';" \
+        >/dev/null 2>&1 || true
+      docker exec env-db psql -U odoo -d "$DB_NAME" -c \
+        "UPDATE ir_config_parameter SET value='other' WHERE key='database.expiration_reason';" \
+        >/dev/null 2>&1 || true
+      # If the parameters don't exist yet (fresh DB), insert them.
+      docker exec env-db psql -U odoo -d "$DB_NAME" -c \
+        "INSERT INTO ir_config_parameter (key, value, create_date, write_date)
+         SELECT 'database.expiration_date', '$EXP_DATE', now(), now()
+         WHERE NOT EXISTS (SELECT 1 FROM ir_config_parameter WHERE key='database.expiration_date');" \
+        >/dev/null 2>&1 || true
+      docker exec env-db psql -U odoo -d "$DB_NAME" -c \
+        "INSERT INTO ir_config_parameter (key, value, create_date, write_date)
+         SELECT 'database.expiration_reason', 'other', now(), now()
+         WHERE NOT EXISTS (SELECT 1 FROM ir_config_parameter WHERE key='database.expiration_reason');" \
+        >/dev/null 2>&1 || true
+      echo "[env] subscription extended to $EXP_DATE"
+    fi
+
     # --- 3. resolve git credentials ---
     # Two auth paths for private addons:
     #   (a) SSH (git@github.com:... / ssh://) -- uses the workspace user's
