@@ -51,6 +51,16 @@ for TPL_NAME in $TEMPLATES; do
     cd "$TPL_DIR"
     if coder templates push -y --directory "$TPL_DIR" "$TPL_NAME" 2>&1 | tee "/tmp/coder-push-$TPL_NAME.log"; then
       log "template $TPL_NAME published -> $CODER_URL/templates/$TPL_NAME"
+      # H2 (DevOps review): set a default inactivity autostop TTL on the
+      # workspacer template so an issue left open doesn't run a t3.large
+      # indefinitely. 8h is enough for a full workday; the user can extend
+      # via the dashboard. Other templates (builder/masker/discoverer) are
+      # short-lived by design and self-terminate, so no TTL is needed there.
+      if [ "$TPL_NAME" = "odoo-synth-workspacer" ]; then
+        coder templates edit --default-ttl 8h "$TPL_NAME" 2>&1 | tee -a "/tmp/coder-push-$TPL_NAME.log" \
+          && log "  set default-ttl=8h on $TPL_NAME (H2 inactivity autostop)" \
+          || log "  WARN: could not set default-ttl on $TPL_NAME (non-fatal)"
+      fi
     else
       log "template $TPL_NAME push failed (see /tmp/coder-push-$TPL_NAME.log)"
       rc=1

@@ -305,6 +305,19 @@ resource "coder_agent" "main" {
   os                      = "linux"
   arch                    = "amd64"
   startup_script_behavior = "blocking"
+  # H2 (DevOps review): inactivity autostop. When Coder stops the workspace
+  # (inactivity timeout or manual stop), the shutdown_script powers off the
+  # EC2 instance cleanly so no compute is billed for idle workspaces.
+  shutdown_script = <<-EOT
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Graceful: stop Odoo containers, then poweroff. Coder's
+    # aws_ec2_instance_state resource will also set the instance to "stopped"
+    # on transition=="stop", but this runs first (inside the agent) so Odoo
+    # gets a clean shutdown rather than a hard power-cut.
+    docker stop env-odoo env-db 2>/dev/null || true
+    sudo poweroff 2>/dev/null || true
+  EOT
   startup_script          = <<-EOT
     #!/usr/bin/env bash
     set -euo pipefail

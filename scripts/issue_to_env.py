@@ -29,7 +29,8 @@ Inputs come from env vars set by the workflow:
   ODOO_SYNTH_BRANCH_HINT (optional repo branch override; else profile ref).
 
 Exit codes: 0 = env created + agent launched; 1 = no matching profile; 2 = env
-create failed; 3 = env did not become running; 4 = agent launch failed.
+create failed; 3 = env did not become running; 4 = agent launch failed; 6 = concurrency
+cap reached (H2: ODOO_SYNTH_MAX_CONCURRENT).
 """
 from __future__ import annotations
 import os
@@ -326,6 +327,20 @@ def main() -> int:
     # branch; default is the repo's main branch. The issue
     # launcher passes this explicitly so the agent doesn't have to guess.
     pr_base = (profile.get("pr_base") or "").strip() or "main"
+
+    # H2 (DevOps review): concurrency cap. Before launching a new workspace,
+    # count active (non-terminated) environments and refuse if we're at the
+    # limit. This prevents fifty open issues from creating fifty t3.large
+    # instances with no cap. Default 10; override with ODOO_SYNTH_MAX_CONCURRENT.
+    max_concurrent = int(os.environ.get("ODOO_SYNTH_MAX_CONCURRENT", "10") or "10")
+    active = [e for e in store.list_environments(limit=500)
+              if e.get("status") not in ("terminated", "deleted")]
+    if len(active) >= max_concurrent:
+        _log(f"ERROR: concurrency cap reached ({len(active)}/{max_concurrent} "
+             f"active workspaces); close an issue or raise "
+             f"ODOO_SYNTH_MAX_CONCURRENT to allow more")
+        return 6
+    _log(f"concurrency: {len(active)}/{max_concurrent} active workspaces (cap ok)")
 
     _log(f"creating env: name={label} issue={issue_ref} branch={repo_branch} "
          f"pr_base={pr_base}")
