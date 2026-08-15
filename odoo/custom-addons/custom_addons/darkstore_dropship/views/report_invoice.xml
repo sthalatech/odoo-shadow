@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        Add a four-address block (Billing, Shipping, Dispatch, Company)
+        to the invoice PDF, placed after the address row and before
+        the invoice informations section.
+    -->
+    <template id="report_invoice_document_darkstore" inherit_id="account.report_invoice_document">
+        <xpath expr="//div[@id='informations']" position="before">
+            <div class="row mb-3" name="darkstore_address_block">
+                <div class="col-3">
+                    <strong>Billing Address:</strong><br/>
+                    <address class="mb-0" t-field="o.partner_id"
+                        t-options='{"widget": "contact", "fields": ["address", "name", "phone"], "no_marker": True}'/>
+                </div>
+                <div class="col-3">
+                    <strong>Shipping Address:</strong><br/>
+                    <div t-field="o.partner_shipping_id"
+                        t-options='{"widget": "contact", "fields": ["address", "name", "phone"], "no_marker": True}'/>
+                </div>
+                <div class="col-3">
+                    <t t-if="o.picking_id and o.picking_id.partner_id">
+                        <strong>Dispatch Address:</strong><br/>
+                        <div t-field="o.picking_id.partner_id"
+                            t-options='{"widget": "contact", "fields": ["address", "name", "phone"], "no_marker": True}'/>
+                    </t>
+                    <t t-elif="o.picking_id and o.picking_id.purchase_id and o.picking_id.purchase_id.partner_id">
+                        <strong>Dispatch Address:</strong><br/>
+                        <div t-field="o.picking_id.purchase_id.partner_id"
+                            t-options='{"widget": "contact", "fields": ["address", "name", "phone"], "no_marker": True}'/>
+                    </t>
+                </div>
+                <div class="col-3">
+                    <strong>Company Address:</strong><br/>
+                    <address class="mb-0" t-field="o.company_id.partner_id"
+                        t-options='{"widget": "contact", "fields": ["address", "name", "phone"], "no_marker": True}'/>
+                </div>
+            </div>
+        </xpath>
+    </template>
+</odoo>

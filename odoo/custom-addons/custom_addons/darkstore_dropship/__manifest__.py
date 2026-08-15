@@ -28,6 +28,7 @@ This module is built incrementally; features are added step by step.
     ],
     'data': [
         'views/sale_order_views.xml',
+        'views/report_invoice.xml',
     ],
     'installable': True,
     'auto_install': False,
