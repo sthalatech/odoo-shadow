@@ -54,3 +54,29 @@ class StockRule(models.Model):
                 })
                 procurement.values['supplierinfo_id'] = virtual
         return super()._run_buy(procurements)
+
+
+class PurchaseOrder(models.Model):
+    _inherit = 'purchase.order'
+
+    def _prepare_sale_order_data(self, name, partner, company, direct_delivery_address):
+        """Fix the delivery address of the inter-company SO created from a
+        dropship PO.
+
+        Odoo's enterprise `sale_purchase_inter_company_rules` computes
+        `direct_delivery_address = picking_type_id.warehouse_id.partner_id
+        or dest_address_id`.  For a dropship PO the picking type is the
+        dropship type, whose warehouse partner is the *fulfillment vendor*
+        (the dispatch address shown on reports) - not where the goods are
+        delivered.  The goods go straight from the vendor to the end
+        customer, i.e. the PO's `dest_address_id`.  Out of the box the
+        dropship picking type has no warehouse, so the `or` falls through
+        to `dest_address_id`; once the picking type is linked to the
+        vendor warehouse (for the dispatch address on the PDF), the wrong
+        value wins.  Force the end-customer address here so the IC SO, its
+        delivery picking and its invoice all carry the customer's address.
+        """
+        if self.picking_type_id.code == 'dropship' and self.dest_address_id:
+            direct_delivery_address = self.dest_address_id.id
+        return super()._prepare_sale_order_data(
+            name, partner, company, direct_delivery_address)
