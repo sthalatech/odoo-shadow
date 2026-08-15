@@ -2,8 +2,9 @@
 <odoo>
     <!--
         Add a four-address block (Billing, Shipping, Dispatch, Company)
-        to the invoice PDF, placed after the address row and before
-        the invoice informations section.
+        to the invoice PDF. Dispatch address comes from the warehouse
+        partner (where goods were dispatched from), not the picking
+        partner (who received the shipment).
     -->
     <template id="report_invoice_document_darkstore" inherit_id="account.report_invoice_document">
         <xpath expr="//div[@id='informations']" position="before">
@@ -19,14 +20,14 @@
                         t-options='{"widget": "contact", "fields": ["address", "name", "phone"], "no_marker": True}'/>
                 </div>
                 <div class="col-3">
-                    <t t-if="o.picking_id and o.picking_id.partner_id">
+                    <t t-if="o.picking_id and o.picking_id.picking_type_id and o.picking_id.picking_type_id.warehouse_id and o.picking_id.picking_type_id.warehouse_id.partner_id">
                         <strong>Dispatch Address:</strong><br/>
-                        <div t-field="o.picking_id.partner_id"
+                        <div t-field="o.picking_id.picking_type_id.warehouse_id.partner_id"
                             t-options='{"widget": "contact", "fields": ["address", "name", "phone"], "no_marker": True}'/>
                     </t>
-                    <t t-elif="o.picking_id and o.picking_id.purchase_id and o.picking_id.purchase_id.partner_id">
+                    <t t-elif="o.picking_id and o.picking_id.purchase_id and o.picking_id.purchase_id.picking_type_id and o.picking_id.purchase_id.picking_type_id.warehouse_id and o.picking_id.purchase_id.picking_type_id.warehouse_id.partner_id">
                         <strong>Dispatch Address:</strong><br/>
-                        <div t-field="o.picking_id.purchase_id.partner_id"
+                        <div t-field="o.picking_id.purchase_id.picking_type_id.warehouse_id.partner_id"
                             t-options='{"widget": "contact", "fields": ["address", "name", "phone"], "no_marker": True}'/>
                     </t>
                 </div>
