@@ -291,8 +291,18 @@ _SKIP_TABLES: dict[str, str] = {
     "ir_act_window_view": "window action view metadata; masking breaks UI",
     "ir_act_server": "server action metadata; masking breaks UI",
     "ir_act_report": "report action metadata; masking breaks reports",
+    # ir_act_report_xml: the concrete report definition table holding
+    # report_name (qweb template path like 'account.report_invoice_with_payments'),
+    # report_type, report_file, print_report_name etc. Masking these to
+    # random strings makes wkhtmltopdf unable to find the QWeb template,
+    # so PDF export of invoices/bills fails with 'Invalid template id'.
+    # Structural config, zero PII — must skip like ir_ui_view.
+    "ir_act_report_xml": "report definition metadata; masking breaks PDF/print rendering",
     "ir_act_url": "URL action metadata; masking breaks UI",
     "ir_act_client": "client action metadata; masking breaks UI",
+    # report layout / paperformat: structural print config, zero PII
+    "report_layout": "report layout config; structural, zero PII",
+    "report_paperformat": "paper format config; structural, zero PII",
     "ir_cron": "cron definitions; masker disables post-restore",
     "ir_rule": "record rules; masking breaks access control",
     "ir_config_parameter": "system parameters; structural config",
