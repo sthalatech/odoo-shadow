@@ -1,42 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!--
-        Four-address block for the invoice PDF: Billing, Shipping,
-        Dispatch (warehouse), and Company. Each address in its own
-        bordered card, arranged horizontally in a row.
-    -->
     <template id="report_invoice_document_darkstore" inherit_id="account.report_invoice_document">
         <xpath expr="//div[@id='informations']" position="before">
-            <div class="row" name="darkstore_address_block" style="margin-bottom: 12px; display: flex;">
-                <div class="col-3" style="border: 1px solid #dee2e6; border-radius: 4px; padding: 8px 6px; margin: 0 2px;">
-                    <div style="font-size: 10px; font-weight: bold; color: #714B67; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 3px;">Billing Address</div>
-                    <div style="font-size: 10px; line-height: 1.35;">
-                        <span t-field="o.partner_id"
-                            t-options='{"widget": "contact", "fields": ["name", "address", "phone"], "no_marker": True}'/>
-                    </div>
-                </div>
-                <div class="col-3" style="border: 1px solid #dee2e6; border-radius: 4px; padding: 8px 6px; margin: 0 2px;">
-                    <div style="font-size: 10px; font-weight: bold; color: #714B67; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 3px;">Shipping Address</div>
-                    <div style="font-size: 10px; line-height: 1.35;">
-                        <span t-field="o.partner_shipping_id"
-                            t-options='{"widget": "contact", "fields": ["name", "address", "phone"], "no_marker": True}'/>
-                    </div>
-                </div>
-                <div class="col-3" style="border: 1px solid #dee2e6; border-radius: 4px; padding: 8px 6px; margin: 0 2px;">
-                    <div style="font-size: 10px; font-weight: bold; color: #714B67; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 3px;">Dispatch Address</div>
-                    <div style="font-size: 10px; line-height: 1.35;">
-                        <span t-field="o.picking_id.picking_type_id.warehouse_id.partner_id"
-                            t-options='{"widget": "contact", "fields": ["name", "address", "phone"], "no_marker": True}'/>
-                    </div>
-                </div>
-                <div class="col-3" style="border: 1px solid #dee2e6; border-radius: 4px; padding: 8px 6px; margin: 0 2px;">
-                    <div style="font-size: 10px; font-weight: bold; color: #714B67; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 3px;">Company Address</div>
-                    <div style="font-size: 10px; line-height: 1.35;">
-                        <span t-field="o.company_id.partner_id"
-                            t-options='{"widget": "contact", "fields": ["name", "address", "phone"], "no_marker": True}'/>
-                    </div>
-                </div>
-            </div>
+            <table name="darkstore_address_block" style="width: 100%; border-collapse: separate; border-spacing: 4px 0; margin-bottom: 10px;">
+                <tr>
+                    <td style="border: 1px solid #dee2e6; border-radius: 4px; padding: 6px 8px; width: 25%; vertical-align: top;">
+                        <div style="font-size: 9px; font-weight: bold; color: #714B67; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 3px;">Billing Address</div>
+                        <div style="font-size: 10px; line-height: 1.35;">
+                            <span t-field="o.partner_id"
+                                t-options='{"widget": "contact", "fields": ["name", "address", "phone"], "no_marker": True}'/>
+                        </div>
+                    </td>
+                    <td style="border: 1px solid #dee2e6; border-radius: 4px; padding: 6px 8px; width: 25%; vertical-align: top;">
+                        <div style="font-size: 9px; font-weight: bold; color: #714B67; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 3px;">Shipping Address</div>
+                        <div style="font-size: 10px; line-height: 1.35;">
+                            <span t-field="o.partner_shipping_id"
+                                t-options='{"widget": "contact", "fields": ["name", "address", "phone"], "no_marker": True}'/>
+                        </div>
+                    </td>
+                    <td style="border: 1px solid #dee2e6; border-radius: 4px; padding: 6px 8px; width: 25%; vertical-align: top;">
+                        <div style="font-size: 9px; font-weight: bold; color: #714B67; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 3px;">Dispatch Address</div>
+                        <div style="font-size: 10px; line-height: 1.35;">
+                            <span t-field="o.picking_id.picking_type_id.warehouse_id.partner_id"
+                                t-options='{"widget": "contact", "fields": ["name", "address", "phone"], "no_marker": True}'/>
+                        </div>
+                    </td>
+                    <td style="border: 1px solid #dee2e6; border-radius: 4px; padding: 6px 8px; width: 25%; vertical-align: top;">
+                        <div style="font-size: 9px; font-weight: bold; color: #714B67; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 3px;">Company Address</div>
+                        <div style="font-size: 10px; line-height: 1.35;">
+                            <span t-field="o.company_id.partner_id"
+                                t-options='{"widget": "contact", "fields": ["name", "address", "phone"], "no_marker": True}'/>
+                        </div>
+                    </td>
+                </tr>
+            </table>
         </xpath>
     </template>
 </odoo>
