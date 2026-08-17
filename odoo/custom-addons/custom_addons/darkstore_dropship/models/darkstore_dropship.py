@@ -60,10 +60,11 @@ class PurchaseOrder(models.Model):
     _inherit = 'purchase.order'
 
     def _prepare_sale_order_data(self, name, partner, company, direct_delivery_address):
-        """Fix the delivery address of the inter-company SO created from a
-        dropship PO.
+        """Fix the delivery address and fiscal position of the inter-company
+        SO created from a dropship PO.
 
-        Odoo's enterprise `sale_purchase_inter_company_rules` computes
+        1. Delivery address: Odoo's enterprise
+        `sale_purchase_inter_company_rules` computes
         `direct_delivery_address = picking_type_id.warehouse_id.partner_id
         or dest_address_id`.  For a dropship PO the picking type is the
         dropship type, whose warehouse partner is the *fulfillment vendor*
@@ -75,8 +76,21 @@ class PurchaseOrder(models.Model):
         vendor warehouse (for the dispatch address on the PDF), the wrong
         value wins.  Force the end-customer address here so the IC SO, its
         delivery picking and its invoice all carry the customer's address.
+
+        2. Fiscal position: the enterprise module computes it in the PO's
+        company context (`_get_fiscal_position(partner)` on a PO record of
+        the source company), so the IC SO either gets no fiscal position or
+        one belonging to the wrong company (dropped by the company check on
+        create).  Recompute it in the IC company's context so the IC SO is
+        taxed per the destination company's rules (e.g. intra-state taxes
+        mapped to IGST for inter-state supplies).
         """
         if self.picking_type_id.code == 'dropship' and self.dest_address_id:
             direct_delivery_address = self.dest_address_id.id
-        return super()._prepare_sale_order_data(
+        res = super()._prepare_sale_order_data(
             name, partner, company, direct_delivery_address)
+        fpos = self.env['account.fiscal.position'].with_company(
+            company)._get_fiscal_position(partner)
+        if fpos:
+            res['fiscal_position_id'] = fpos.id
+        return res

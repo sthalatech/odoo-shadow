@@ -23,6 +23,11 @@ Each feature is added as a separate commit.
   picking type's warehouse partner is only the *dispatch* address (used on
   reports); it must never become the delivery address on the IC SO, its
   delivery picking, or its invoice.
+- **IC SO fiscal position**: the enterprise module computes the fiscal
+  position in the *source* company's context, so the IC SO would get no
+  (or a wrong-company) fiscal position and be over/under-taxed. It is
+  recomputed in the destination company's context (e.g. intra-state
+  CGST/SGST mapped to IGST for inter-state supplies).
 
 ## Installation
 
