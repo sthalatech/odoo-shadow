@@ -100,11 +100,11 @@ echo "    private ip: $PRIV_IP | public ip: $PUB_IP"
 # --- wait for SSH ---
 echo "==> waiting for SSH ..."
 for i in $(seq 1 60); do
-  if ssh -i "$KEY_FILE" -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
+  if ssh -i "$KEY_FILE" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=5 -o BatchMode=yes \
        "ubuntu@$PUB_IP" "true" 2>/dev/null; then break; fi
   sleep 5
 done
-SSH=(ssh -i "$KEY_FILE" -o StrictHostKeyChecking=no -o ConnectTimeout=10 "ubuntu@$PUB_IP")
+SSH=(ssh -i "$KEY_FILE" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=10 "ubuntu@$PUB_IP")
 
 # --- provision: postgres 16 in docker, create DB+user, restore dump ---
 echo "==> provisioning Postgres 16 + restoring dump (this takes a few minutes) ..."

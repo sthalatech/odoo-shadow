@@ -440,6 +440,9 @@ def _mask_env_pairs(src: dict, tgt: dict, params: dict,
         ("NEUTRALIZE_SECRETS", flag("neutralize_secrets", nd.get("secrets", True))),
         # H1: post-mask verification (scan for residual PII patterns). On by default.
         ("POST_MASK_VERIFY", flag("post_mask_verify", nd.get("post_mask_verify", True))),
+        # H1 (Pass-2): canary records (seed into restored temp instance, assert
+        # values absent after masking). On by default.
+        ("CANARY_VERIFY", flag("canary_verify", nd.get("canary_verify", True))),
         ("RESET_ADMIN_LOGIN", flag("reset_admin_login",
                                   config.panel().get("reset_admin_login", True))),
     ]
