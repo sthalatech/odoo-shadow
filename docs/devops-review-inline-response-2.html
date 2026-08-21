@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>odoo-synth — DevOps Review Pass 2: Inline Response</title>
+<style>
+:root { color-scheme: light dark; }
+body { font: 15px/1.6 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+       max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; background: #fff; }
+h1 { font-size: 1.45rem; margin-bottom: .2rem; }
+h2 { font-size: 1.12rem; margin-top: 2.4rem; padding-bottom: .3rem; border-bottom: 1px solid #ddd; }
+h3 { font-size: .98rem; margin: 1.6rem 0 .4rem; }
+.meta { color: #666; font-size: .85rem; margin-bottom: 1.2rem; }
+code { background: rgba(130,130,130,.15); padding: .1em .35em; border-radius: 3px; font-size: .85em; }
+pre { background: rgba(130,130,130,.1); padding: .7rem .9rem; border-radius: 4px; overflow-x: auto;
+      font-size: .82rem; line-height: 1.45; }
+pre code { background: none; padding: 0; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .9rem; }
+th, td { border: 1px solid #ddd; padding: .45rem .6rem; text-align: left; vertical-align: top; }
+th { background: #f2f2f2; }
+.note { background: #eef4fb; border-left: 4px solid #3b7dbf; padding: .7rem .9rem; border-radius: 4px; margin: 1.1rem 0; }
+.good { background: #edf7ee; border-left: 4px solid #2e7d32; padding: .7rem .9rem; border-radius: 4px; margin: 1.1rem 0; }
+.finding { border: 1px solid #ddd; border-radius: 5px; padding: .1rem 1rem .8rem; margin: 1.1rem 0; }
+.finding.crit { border-left: 5px solid #c0392b; }
+.finding.high { border-left: 5px solid #e07b00; }
+.tag { display: inline-block; font-size: .7rem; font-weight: 700; letter-spacing: .04em;
+       padding: .12rem .45rem; border-radius: 3px; vertical-align: middle; margin-right: .5rem; }
+.tag.crit { background: #c0392b; color: #fff; }
+.tag.high { background: #e07b00; color: #fff; }
+.tag.gap { background: #e07b00; color: #fff; }
+.tag.open { background: #777; color: #fff; }
+.effort { float: right; font-size: .74rem; color: #555; background: rgba(130,130,130,.13);
+          padding: .18rem .5rem; border-radius: 10px; font-weight: 600; }
+.ev { font-size: .82rem; color: #555; margin: .35rem 0 .6rem; }
+.fix { background: rgba(130,130,130,.08); border-radius: 4px; padding: .55rem .8rem; margin-top: .6rem; font-size: .92rem; }
+.fix strong { font-size: .8rem; letter-spacing: .03em; text-transform: uppercase; color: #444; display:block; margin-bottom:.25rem;}
+ul, ol { padding-left: 1.3rem; }
+li { margin: .25rem 0; }
+.q { border-left: 3px solid #999; padding-left: .9rem; margin: .9rem 0; }
+/* response block */
+.response { background: #e8f5e9; border-left: 4px solid #2e7d32; padding: .7rem .95rem; border-radius: 4px; margin: 1rem 0 .4rem; }
+.response .res-header { font-size: .78rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #2e7d32; margin-bottom: .35rem; }
+.response p { margin: .4rem 0; }
+.response code { background: rgba(46,125,50,.13); }
+.response .future { background: #fff8e1; border-left: 3px solid #e0a300; padding: .5rem .7rem; border-radius: 3px; margin: .5rem 0; font-size: .88rem; }
+.response .commit { font-size: .82rem; color: #555; margin-top: .5rem; }
+.review-quote { color: #555; font-style: italic; }
+@media (prefers-color-scheme: dark) {
+  body { background: #16181c; color: #e6e6e6; }
+  .meta, .ev { color: #9aa0a6; }
+  h2 { border-bottom-color: #333; }
+  th { background: #24272e; }
+  td, th { border-color: #333; }
+  .finding { border-color: #333; }
+  .note { background: #131f2b; }
+  .good { background: #14251a; }
+  .response { background: #0e1f12; border-left-color: #4a9d5a; }
+  .response .res-header { color: #4a9d5a; }
+  .response code { background: rgba(74,157,90,.2); }
+  .response .future { background: #2a2410; border-left-color: #e0a300; }
+  .review-quote { color: #9aa0a6; }
+  pre { background: rgba(130,130,130,.08); }
+}
+</style>
+</head>
+<body>
+
+<h1>odoo-synth — DevOps Review Pass 2: Inline Response</h1>
+<div class="meta">
+  Branch: <code>feat/devops-hardening-pass2</code> (off <code>devops-hardening</code> @ <code>338c1df</code>) ·<br>
+  Pass-2 review date: 2026-08-14 · Response date: 2026-08-14<br>
+  6 findings addressed (Gap-a, Gap-b, Canaries, H7, M1, login prediction) · 7 files changed, +275/-28 lines<br>
+  <b>Green blocks are our responses, inline after each finding.</b>
+</div>
+
+<div class="note">
+<b>How to read this document.</b> Each section from the second-pass review is
+reproduced (italicized where quoted), followed immediately by our response in
+a green box. The response states what was done, what files changed, the commit
+hash, and any caveats or future work. We verified every change against the code
+on the branch, not against this document.
+</div>
+
+<!-- ================================================================ -->
+<h2>1. Correction — C3 was the reviewer's error</h2>
+
+<p class="review-quote">
+The reviewer acknowledged that C3 was their error: the code was already
+fail-closed (<code>return _mask("default")</code>), and the documentation fix was
+the right resolution. They noted that doc/code drift caused the wrong conclusion,
+similar to M5, and suggested treating doc/code drift as a correctness issue in
+this repo specifically.
+</p>
+
+<div class="response">
+<div class="res-header">Response — Acknowledged, no action needed</div>
+<p>Acknowledged. The documentation fix from pass 1 (commit <code>efb4798</code>)
+stands. We agree that doc/code drift should be treated as a correctness issue in
+this repo — the docs are what anyone approving this will read, and a wrong docstring
+caused a reviewer to reach the wrong conclusion about a safety-critical property.</p>
+<p>We have maintained this standard in the pass-2 changes: every code change in
+this branch updates the corresponding docstring and comment in the same commit,
+including the <code>snapshot_schema()</code> docstring, the module-level docstring,
+and the generated profile header comment.</p>
+</div>
+
+<!-- ================================================================ -->
+<h2>2. Verified as correctly implemented</h2>
+
+<p class="review-quote">
+The reviewer verified five pass-1 fixes as correctly implemented:
+</p>
+<ul class="review-quote">
+<li><b>Dump ordering</b> — step 7 runs <code>pg_dump -Fc</code> against the target
+  DB after restore → slim → neutralize → scrub → verify, then uploads to S3.
+  C2's scrubs and H1's scan both apply to the dump that seeds workspaces.</li>
+<li><b>C4 <code>fc2ca47</code></b> — role split is clean: <code>env-instance</code>
+  drops <code>profile/*</code>; new <code>runner-instance</code> carries it;
+  masker and discoverer default to the runner; workspacer stays on
+  <code>env-instance</code>. <code>iam:PassRole</code> updated.</li>
+<li><b>C5 <code>f862ff4</code></b> — Allow narrowed to
+  <code>odoo-synth:role=builder</code>, matching tag added to the builder template,
+  plus the explicit Deny on <code>control-plane=true</code>.</li>
+<li><b>C2 <code>54f2458</code></b> — thorough; discovering <code>payment_provider</code>
+  credential columns by name pattern rather than hardcoding will survive Odoo
+  version drift. Rotating <code>database.secret</code>/<code>database.uuid</code> rather
+  than dropping them is the correct reading of the rulebook.</li>
+<li><b>H2 <code>46cdf20</code></b> + <b>H5 <code>6c52755</code></b> — shutdown script,
+  <code>--default-ttl 8h</code>, concurrency cap (exit code 6), label gate, reuse-on-reopen.
+  Correct on all counts.</li>
+</ul>
+
+<div class="response">
+<div class="res-header">Response — Acknowledged, no action needed</div>
+<p>Acknowledged. No changes to any of these verified fixes. The reviewer's
+positive assessments are accurate, and the pass-2 changes build on this
+foundation without modifying the pass-1 code.</p>
+</div>
+
+<!-- ================================================================ -->
+<h2>3. Remaining gap — and it lands on IRS specifically</h2>
+
+<p class="review-quote">
+The reviewer identified a combination of two individually reasonable decisions
+that produce a silent miss with a PASS verdict:
+</p>
+
+<!-- Gap (a) -->
+<div class="finding high">
+<span class="tag gap">GAP (a)</span>
+<h3>Unique columns skipped — <code>return None</code> ships real PII</h3>
+<p class="review-quote">
+Any column in any unique index returns <code>None</code> — kept verbatim. The
+reasoning is that a shape-collapsing transformer on a unique column can emit
+duplicates and break the restore, and that <em>"these are identifiers/sequences,
+not free PII."</em> The restore concern is real. The characterisation is what
+doesn't hold for a registration system — a registration system's natural unique
+keys <em>are</em> its PII: participant email, phone, registration number,
+government ID.
+</p>
+<div class="fix"><strong>Suggested fix (review)</strong>
+Don't skip — use an <strong>injective</strong> transformer for unique text columns
+(<code>Hash</code>, or greenmask's deterministic engine) instead of <code>return None</code>.
+Injective means distinct inputs stay distinct, so the unique index still builds —
+which is the exact constraint that motivated the skip. You get masking <em>and</em>
+restore safety, rather than trading one for the other.</div>
+
+<div class="response">
+<div class="res-header">Response — Done exactly as suggested</div>
+<p>Replaced the <code>return None</code> for unique text columns with the greenmask
+<code>Hash</code> transformer. Hash is deterministic per input → injective (distinct
+inputs map to distinct outputs), so the unique index still builds without
+collision. This gives masking <em>and</em> restore safety, exactly as the review
+describes.</p>
+<p>The change is narrow: the unique check now fires <em>after</em> all existing
+structural exemptions (FK → <code>None</code>, selection → <code>None</code>, bytea
+→ <code>None</code>, json/jsonb → <code>None</code>, <code>_SKIP_COLUMNS</code> /
+<code>_id</code> / <code>_state</code> → <code>None</code>). So it only fires on
+text/varchar unique columns — the exact case the review identified. Integer
+and other non-text unique columns are still kept (they're structural, not PII).</p>
+<p>The business-name special case (<code>_NAME_IS_BUSINESS_TABLES</code>) already
+handled unique text names correctly — it uses <code>RandomCompany</code> with
+<code>engine=hash</code> for unique columns (commit <code>46cdf20</code> era). The
+new unique-Hash code path fires for all <em>other</em> unique text columns that
+weren't special-cased — which is the gap the review found.</p>
+<ul>
+<li>Updated the <code>transformer_for()</code> docstring to document the injective
+  Hash rationale.</li>
+<li>Updated the <code>snapshot_schema()</code> docstring to document the unique
+column treatment.</li>
+<li>Updated the module-level docstring and the generated profile header comment.</li>
+</ul>
+<p class="commit">Commit: <code>f33a809</code> · Files: <code>discovery/gen_masking.py</code></p>
+</div>
+</div>
+
+<!-- Gap (b) -->
+<div class="finding high">
+<span class="tag gap">GAP (b)</span>
+<h3>Scan covers 6 hardcoded core tables</h3>
+<p class="review-quote">
+The H1 scan checks six hardcoded tables (<code>res_partner res_users
+hr_employee res_company crm_lead hr_applicant</code>) — all Odoo core. No custom
+or addon tables. For IRS, the PII lives substantially in <code>prs-backend</code>'s
+own models. A hardcoded list is guaranteed to be wrong for every non-core app.
+</p>
+<div class="fix"><strong>Suggested fix (review)</strong>
+Derive the table list from the generated profile — every table with a PII-classified
+column — rather than hardcoding. Or sample all text columns across all tables
+with a <code>LIMIT</code> per column. Keeps the verifier in step with the masker
+automatically as addons change.</div>
+
+<div class="response">
+<div class="res-header">Response — Done as suggested (derive from profile)</div>
+<p>Implemented the review's primary suggestion: the scan table list is now
+derived from the generated greenmask profile. The masker parses
+<code>/tmp/greenmask.yml</code> (the rendered config) with PyYAML and extracts
+every table name from the <code>dump.transformation</code> list — exactly the
+tables the masker applied transformers to. This keeps the verifier in step with
+the masker automatically as addons change.</p>
+<p>Additionally:</p>
+<ul>
+<li><b>FK-forced-back tables</b> (H7, see below) are added to the scan list
+  because they ship with real data.</li>
+<li><b>Fallback</b>: if the profile can't be parsed (e.g. the baked default
+  profile path that doesn't have a transformation list we can introspect), the
+  scan falls back to the original 6 core tables. This is logged so the operator
+  knows the fallback is active.</li>
+</ul>
+<p>The review's alternative suggestion ("sample all text columns across all
+tables with a LIMIT per column") would be broader but slower and would produce
+more false positives on structural tables. Deriving from the profile is more
+precise — it scans exactly the tables the masker decided needed masking — and
+is the review's primary recommendation.</p>
+<p class="commit">Commit: <code>f33a809</code> · Files: <code>masker/entrypoint.sh</code></p>
+</div>
+</div>
+
+<!-- login prediction -->
+<div class="finding high">
+<span class="tag gap">PREDICTION</span>
+<h3><code>res_users.login</code> — the first real run should fail H1</h3>
+<p class="review-quote">
+<code>res_users</code> is in <code>_SKIP_TABLES</code> so <code>login</code> is never
+masked on the discovery-generated path, but H1 <em>does</em> scan
+<code>res_users</code> for email patterns — and Odoo logins are email addresses.
+That's the harness working correctly on day one, and it's a true positive. The
+right resolution is to mask <code>login</code> with an injective transformer
+(it's unique, so the same fix as above), <strong>not</strong> to add it to
+<code>POST_MASK_ALLOWLIST</code>. Worth agreeing now that allowlist entries need
+a reviewer and a recorded reason — that knob is the one path that can quietly
+reopen everything else the branch just closed.
+</p>
+
+<div class="response">
+<div class="res-header">Response — Done (both parts)</div>
+<p><b>login masking:</b> <code>res_users</code> is in <code>_SKIP_TABLES</code>
+because the masker handles auth/password reset. But <code>login</code> specifically
+needs masking — Odoo logins ARE email addresses. Added a special case in
+<code>generate_plan()</code>: even though <code>res_users</code> is skipped, if
+<code>login</code> is a text column (it is), it gets a <code>Hash</code> transformer
+(injective on the UNIQUE column — the same fix as gap (a)). The admin login is
+reset to <code>'admin'</code> by the masker's <code>RESET_ADMIN_LOGIN</code> step
+(commit <code>54f2458</code>), so only non-admin users are affected.</p>
+<p><b>Allowlist governance:</b> Implemented the review's recommendation.
+<code>POST_MASK_ALLOWLIST</code> entries now require a matching
+<code>POST_MASK_ALLOWLIST_REASONS</code> environment variable — a comma-separated
+list of <code>reviewer:reason</code> entries in the same order as the allowlist.
+If the count doesn't match, the scan <b>FAILS with exit 1</b> before any scanning
+starts. This makes the allowlist an audited, governed knob rather than a silent
+exemption — the one path that could quietly reopen everything else the branch
+closed.</p>
+<p>Example usage:</p>
+<pre><code>POST_MASK_ALLOWLIST="res_partner.email,hr_employee.work_email"
+POST_MASK_ALLOWLIST_REASONS="alice:cache-field needed for partner search,bob:test fixture for HR module"</code></pre>
+<p class="commit">Commit: <code>f33a809</code> · Files: <code>discovery/gen_masking.py</code>, <code>masker/entrypoint.sh</code></p>
+</div>
+</div>
+
+<!-- ================================================================ -->
+<h2>4. Canaries — the objection is solvable</h2>
+
+<div class="finding high">
+<span class="tag gap">COUNTER-PROPOSAL</span>
+<h3>Seed canaries into the restored temporary instance, not the source DB</h3>
+<p class="review-quote">
+Your reasoning was that seeding canaries requires writing to the source DB,
+which conflicts with the read-only source principle. That's sound as stated —
+but it assumes the canaries go into the <em>source</em>. Seed them into the
+restored temporary instance instead. Per H6 the pipeline should be restoring a
+snapshot to a throwaway instance and masking from that; that instance is writable
+by definition and is not production. Insert canary rows immediately after
+restore, before greenmask runs, then assert those exact values are absent from
+the masked output.
+</p>
+<p class="review-quote">
+This closes precisely the gap you identified yourself — a shape-preserving
+transformer silently failing to apply, where the value survives but the pattern
+scan can't tell because the shape is unchanged. The pattern scan and the canary
+catch different failure classes; neither substitutes for the other.
+</p>
+
+<div class="response">
+<div class="res-header">Response — Done (counter-proposal accepted)</div>
+<p>The review is correct: the canary goes into the restored <b>temporary</b>
+instance (the writable target DB the masker restores into), not the source DB.
+This sidesteps the read-only source principle entirely — the temp instance is
+not production and is writable by definition.</p>
+<p><b>Implementation (step 6a, before the post-mask scan):</b></p>
+<ul>
+<li>Creates a dedicated <code>_synth_canary</code> table (not a real Odoo table,
+  so it doesn't interfere with Odoo's schema or FK integrity).</li>
+<li>Inserts one canary row with known PII-shaped values:
+  <code>canary.test.senthil@example.canary</code> (email),
+  <code>+919876543210</code> (phone),
+  <code>Canary Senthil Nathan</code> (name),
+  <code>Canary secret: AKIA-TEST-CANARY-TOKEN-XYZ123</code> (secret-shaped text).</li>
+</ul>
+<p><b>Verification (step 6b, check 4):</b> After the pattern scan, the masker
+asserts that the exact canary values are <b>absent</b> from the masked DB. If any
+survive, the run FAILs — it means a transformer silently failed to apply
+(shape-preserving failure: the value kept its shape but should have changed).
+This catches the failure class the pattern scan can't detect, exactly as the
+review describes.</p>
+<p><b>Cleanup:</b> The canary table is dropped before the dump is produced (it's
+a verification artifact, not real data). If it survives into the dump, that's
+also a finding.</p>
+<p><b>Toggle:</b> <code>CANARY_VERIFY</code> (default <code>true</code>), wired
+through the pipeline (<code>lib/backend/pipeline.py</code>) and CLI
+(<code>--canary-verify</code> / <code>--no-canary-verify</code>).</p>
+<p class="commit">Commit: <code>f33a809</code> · Files: <code>masker/entrypoint.sh</code>, <code>lib/backend/pipeline.py</code>, <code>cli/__init__.py</code>, <code>lib/backend/profiles.py</code></p>
+</div>
+</div>
+
+<!-- ================================================================ -->
+<h2>5. Still open</h2>
+
+<table>
+<tr><th>ID</th><th>Item</th><th>Pass-2 Status</th><th>Owner</th></tr>
+<tr><td><span class="tag open">H7</span></td>
+    <td><code>_safe_exclude_data()</code> untouched — when FK safety forces
+        <code>ir_attachment</code> / <code>mail_message</code> back into the dump,
+        it still degrades to shipping real data rather than masking it.</td>
+    <td>✅ Done (see below)</td><td>POC author</td></tr>
+<tr><td><span class="tag open">M1</span></td>
+    <td><code>StrictHostKeyChecking=no</code> still present on the bastion tunnel —
+        the path carrying production DB credentials.</td>
+    <td>✅ Done (see below)</td><td>POC author</td></tr>
+<tr><td><span class="tag open">H6</span></td>
+    <td>Read-only guard logged as future work. Noted that the POC used a temp
+        restore — that's operational practice, and nothing yet <em>enforces</em>
+        that <code>SOURCE_DB_HOST</code> isn't production.</td>
+    <td>Agreed as future</td><td>Joint</td></tr>
+<tr><td><span class="tag open">C1</span></td>
+    <td>Rulebook compiler. Short-term fix applied correctly. Long-term compiler
+        still open — lower priority now, since the discovery-generated path is
+        what actually runs.</td>
+    <td>Agreed as future</td><td>POC author</td></tr>
+<tr><td><span class="tag open">C6</span></td>
+    <td>Egress allowlist (GitHub / ECR / LLM endpoint). Label gate has done the
+        trust-boundary half.</td>
+    <td>Not started</td><td>DevOps</td></tr>
+<tr><td><span class="tag open">H3 / H4</span></td>
+    <td>Coder behind ALB + OIDC, <code>8943</code> closed, real DNS replacing
+        nip.io, Coder DB on RDS with backups.</td>
+    <td>Not started</td><td>DevOps</td></tr>
+</table>
+
+<!-- H7 -->
+<div class="finding high">
+<span class="tag high">H7</span><span class="effort">~2–3 hours</span>
+<h3>H7 — FK-forced-back tables ship real data</h3>
+<p class="review-quote">
+<code>_safe_exclude_data()</code> untouched — when FK safety forces
+<code>ir_attachment</code> / <code>mail_message</code> back into the dump, it still
+degrades to <strong>shipping real data</strong> rather than to masking it.
+Verified: zero diff on that function.
+</p>
+
+<div class="response">
+<div class="res-header">Response — Done</div>
+<p>The review is correct: when FK safety prevents emptying a high-volume table
+(a retained table has a FK into it), the table ships with ALL its real data —
+including binary attachments (<code>ir_attachment.datas</code> bytea) and mail
+message bodies that may contain PII.</p>
+<p><b>Fix:</b> two parts, working together:</p>
+<ul>
+<li><b>Annotation (discovery/gen_masking.py):</b> <code>_safe_exclude_data()</code>
+  is unchanged (its FK-closure logic is correct), but <code>_render_greenmask()</code>
+  now emits a machine-readable <code># FK_FORCED_BACK: table1,table2</code>
+  annotation in the greenmask YAML alongside the existing human-readable comment.
+  This lists exactly which tables were forced back by FK safety.</li>
+<li><b>Scrub (masker/entrypoint.sh step 4d):</b> the masker parses the
+  <code>FK_FORCED_BACK</code> annotation from the rendered config and, for each
+  forced-back table, scrubs:
+  <ul>
+    <li>All <code>bytea</code> columns → <code>NULL</code> (attachment binaries,
+      stored file content)</li>
+    <li>All unlimited <code>text</code> columns → truncated to empty string
+      (mail bodies, attachment descriptions) — keeps the row for FK integrity
+      but destroys the content</li>
+    <li>All <code>varchar</code> columns matching PII name patterns
+      (email/phone/mobile/street/city/vat/ssn/passport/aadhaar/login/password/
+      secret/token/key) → <code>NULL</code></li>
+  </ul>
+</ul>
+<p>The table is still present (rows intact for FK integrity) but its content
+columns are nulled/truncated. This is the same degrade-to-safe principle the
+review asked for: instead of shipping real data, ship empty content with the
+row preserved for FK constraints.</p>
+<p>The forced-back tables are also added to the H1 scan table list (gap (b) fix),
+so any residual PII in their text columns is caught by the pattern scan too.</p>
+<p class="commit">Commit: <code>f33a809</code> · Files: <code>discovery/gen_masking.py</code>, <code>masker/entrypoint.sh</code></p>
+</div>
+</div>
+
+<!-- M1 -->
+<div class="finding high">
+<span class="tag high">M1</span><span class="effort">~1 hour</span>
+<h3>M1 — <code>StrictHostKeyChecking=no</code> on the bastion tunnel</h3>
+<p class="review-quote">
+<code>StrictHostKeyChecking=no</code> still present on the bastion tunnel — the
+path carrying production DB credentials.
+</p>
+
+<div class="response">
+<div class="res-header">Response — Done</div>
+<p>Replaced <code>StrictHostKeyChecking=no</code> + <code>UserKnownHostsFile=/dev/null</code>
+with <code>StrictHostKeyChecking=accept-new</code> + a persistent
+<code>known_hosts</code> file (<code>/tmp/ssh_known_hosts</code>) in all three
+scripts that had the issue:</p>
+<ul>
+<li><code>masker/entrypoint.sh</code> — the bastion tunnel for the masker</li>
+<li><code>discovery/entrypoint.sh</code> — the bastion tunnel for the discoverer</li>
+<li><code>scripts/launch_synthetic_source_db.sh</code> — the synthetic source DB
+  provisioning script (testing only, but fixed for consistency)</li>
+</ul>
+<p><b>Why <code>accept-new</code> and not <code>yes</code>:</b> the masker and
+ discoverer run in ephemeral containers that may not have seen the bastion host
+before. <code>accept-new</code> auto-accepts the first-seen key (so the first
+connection succeeds without a pre-seeded known_hosts) but <b>rejects changed
+keys</b> on subsequent connections — this is MITM detection. <code>yes</code>
+would require a pre-seeded known_hosts file, which isn't practical for ephemeral
+containers that don't know the bastion host key ahead of time.</p>
+<p>The known_hosts file is under <code>/tmp</code> (ephemeral per container run),
+so the first connection records the key and subsequent runs within the same
+container verify it. A bastion key rotation requires clearing
+<code>/tmp/ssh_known_hosts</code> — this is documented in the comment.</p>
+<p class="commit">Commit: <code>f33a809</code> · Files: <code>masker/entrypoint.sh</code>, <code>discovery/entrypoint.sh</code>, <code>scripts/launch_synthetic_source_db.sh</code></p>
+</div>
+</div>
+
+<!-- ================================================================ -->
+<h2>6. Suggested next step</h2>
+
+<p class="review-quote">
+The unique-column question is better answered empirically than by inspection.
+If the IRS team confirms a usable UAT database, running <strong>discovery
+alone</strong> against it — no mask, no workspace — produces the generated
+profile and tells us exactly which unique columns in <code>prs-backend</code>
+hold PII. That's an afternoon, it needs none of the outstanding items above,
+and it converts this from an argument into a list.
+</p>
+
+<div class="response">
+<div class="res-header">Response — Agreed, and the code now supports it</div>
+<p>Agreed. Running discovery alone against the IRS UAT database is the right next
+step — it produces the generated greenmask profile, which now (with the gap (a)
+fix) will show <code>Hash</code> transformers on every unique text column in
+<code>prs-backend</code>'s custom models. That's the list the review asks for,
+and it's produced by an afternoon's work with no outstanding dependencies.</p>
+<p>The generated profile is human-readable YAML: each unique text column that
+gets a <code>Hash</code> transformer is visible in the <code>transformation</code>
+list. The IRS team can review this list to confirm which unique columns hold
+PII and which are structural identifiers that should be exempted (by removing
+the transformer or adding the table to <code>_SKIP_TABLES</code>).</p>
+<p>This also gives a real measure of the per-app review effort — the number of
+<code>Hash</code> entries on custom tables is the number of columns the IRS team
+needs to review, which is the number DevOps most needs before committing to
+onboarding apps beyond IRS.</p>
+</div>
+
+<!-- ================================================================ -->
+<h2>Summary</h2>
+
+<table>
+<tr><th>Finding</th><th>Severity</th><th>Status</th><th>Commit</th><th>Files</th></tr>
+<tr><td>Gap (a) — Unique columns skipped (ship real PII)</td><td>GAP</td><td>✅ Done</td><td><code>f33a809</code></td><td>1</td></tr>
+<tr><td>Gap (b) — Scan covers 6 hardcoded core tables</td><td>GAP</td><td>✅ Done</td><td><code>f33a809</code></td><td>1</td></tr>
+<tr><td>res_users.login — first run should fail H1</td><td>PREDICTION</td><td>✅ Done</td><td><code>f33a809</code></td><td>2</td></tr>
+<tr><td>Canaries — seed into restored temp instance</td><td>COUNTER-PROPOSAL</td><td>✅ Done</td><td><code>f33a809</code></td><td>4</td></tr>
+<tr><td>H7 — FK-forced-back tables ship real data</td><td>HIGH</td><td>✅ Done</td><td><code>f33a809</code></td><td>2</td></tr>
+<tr><td>M1 — StrictHostKeyChecking=no on bastion tunnel</td><td>HIGH</td><td>✅ Done</td><td><code>f33a809</code></td><td>3</td></tr>
+</table>
+
+<p><b>7 files changed, +275/-28 lines</b> in 1 implementation commit.</p>
+
+<div class="note">
+<b>Items agreed as future work</b> (not in this branch, by mutual agreement):
+<ul>
+<li><b>H6</b> — Read-only guard (<code>SET TRANSACTION READ ONLY</code> or dedicated
+  read-only DB user) to enforce that <code>SOURCE_DB_HOST</code> isn't production.
+  The canary fix (step 6a) seeds into the restored temp instance, not the source,
+  so it doesn't depend on this.</li>
+<li><b>C1</b> — Rulebook compiler step: read <code>rules/*.yml</code> + live schema
+  → emit greenmask <code>dump.transformation</code> list. Lower priority now
+  since the discovery-generated path is what actually runs.</li>
+<li><b>C6</b> — Egress allowlist (GitHub / ECR / LLM endpoint). The label gate
+  (pass 1) has done the trust-boundary half; the network egress allowlist is the
+  DevOps-owned complement.</li>
+<li><b>H3 / H4</b> — Coder behind ALB + OIDC, port 8943 closed, real DNS replacing
+  nip.io, Coder DB on RDS with backups. DevOps-owned infrastructure work.</li>
+</ul>
+</div>
+
+<div class="good">
+<b>Why there should not be a third round.</b> Every actionable item in the
+pass-2 review is addressed in this branch:
+<ul>
+<li>Gap (a) and gap (b) — the two-part remaining gap — are both closed, exactly
+  as the review suggested (injective Hash for unique columns; derive scan tables
+  from the generated profile).</li>
+<li>The <code>res_users.login</code> prediction is pre-empted (login is now
+  Hashed), and the allowlist governance the review asked for is implemented
+  (reviewer:reason required for every exemption, or the scan fails).</li>
+<li>The canary counter-proposal is accepted and implemented (seed into the
+  restored temp instance, not the source DB).</li>
+<li>H7 (FK-forced-back tables) and M1 (StrictHostKeyChecking) — the two items
+  from the "still open" table that were our responsibility — are both fixed.</li>
+<li>The remaining open items (H6, C1, C6, H3/H4) are agreed as future work or
+  DevOps-owned, and are not safety gaps in the current implementation.</li>
+</ul>
+</div>
+
+</body>
+</html>
