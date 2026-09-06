@@ -12,6 +12,11 @@ build/
 dist/
 *.log
 
+# Python virtualenvs — never commit these (accidentally tracked in the past).
+.venv/
+lib/.venv/
+controlpanel/.venv/
+
 # Runtime state files (YAML configs + S3-backed runs) — may contain secrets.
 *.db
 *.db-shm
