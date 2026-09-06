@@ -5,7 +5,7 @@ deploy/.eic_key.pub
 config.yaml
 deploy/secrets.env
 # auto-generated Coder presets
-coder/templates/odoo-synth-workspacer/presets.tf
+coder/templates/odooshadow-workspacer/presets.tf
 __pycache__/
 *.egg-info/
 build/

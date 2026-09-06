@@ -91,7 +91,7 @@ done
 # AWS from the unit EnvironmentFile, NOT from config.yaml, so we do not ship
 # secrets in the repo tarball.
 log "shipping repo + listener to the Coder server ..."
-REMOTE_DIR="/opt/odoo-synth-coder"
+REMOTE_DIR="/opt/odooshadow-coder"
 ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo mkdir -p \"$REMOTE_DIR\" && sudo chown -R \"\$USER:\$USER\" \"$REMOTE_DIR\""
 # rsync if available, else tar over ssh. CRITICAL: ship only the CODE, never
 # the runtime stores -- the Coder server holds its own envs.yaml / profiles /
@@ -116,8 +116,8 @@ if command -v rsync >/dev/null 2>&1; then
     --include='lib/' --include='lib/***' \
     --include='deploy/' --include='deploy/_yaml_to_env.py' --include='deploy/lib.sh' \
     --exclude='deploy/state.env' \
-    --include='coder/templates/odoo-synth-workspacer/agent-system-prompt.md' \
-    --include='coder/templates/odoo-synth-workspacer/' \
+    --include='coder/templates/odooshadow-workspacer/agent-system-prompt.md' \
+    --include='coder/templates/odooshadow-workspacer/' \
     --exclude='*' \
     "$HERE/" "$SSH_TARGET:$REMOTE_DIR/"
 else
@@ -126,7 +126,7 @@ else
     --exclude='lib/backend/profiles' \
     --exclude='lib/backend/runs.yaml' \
     deploy/_yaml_to_env.py deploy/lib.sh \
-    coder/templates/odoo-synth-workspacer/agent-system-prompt.md \
+    coder/templates/odooshadow-workspacer/agent-system-prompt.md \
     | ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "tar -xzf - -C $REMOTE_DIR"
 fi
 
@@ -152,31 +152,31 @@ fi
 # Coder server already runs the coder server daemon with CODER_* in
 # /etc/coder/coder.env. Reuse those for the launcher, plus the webhook
 # secret + port.
-sudo install -d -m 700 /etc/odoo-synth
+sudo install -d -m 700 /etc/odooshadow
 {
   printf 'WEBHOOK_PORT=%s\n' "$PORT"
   printf 'WEBHOOK_BIND=127.0.0.1\n'
   if [ -n "$SECRET_ENV" ]; then printf '%s\n' "$SECRET_ENV"; fi
-} | sudo tee /etc/odoo-synth/webhook.env >/dev/null
-sudo chmod 600 /etc/odoo-synth/webhook.env
+} | sudo tee /etc/odooshadow/webhook.env >/dev/null
+sudo chmod 600 /etc/odooshadow/webhook.env
 
 # CODER_URL/CODER_SESSION_TOKEN: source from the coder server env if present,
 # else leave for the launcher to resolve.
 if [ -f /etc/coder/coder.env ]; then
   grep -E '^CODER_ACCESS_URL=' /etc/coder/coder.env 2>/dev/null \
-    | sed 's/CODER_ACCESS_URL=/CODER_URL=/' | sudo tee -a /etc/odoo-synth/webhook.env >/dev/null || true
+    | sed 's/CODER_ACCESS_URL=/CODER_URL=/' | sudo tee -a /etc/odooshadow/webhook.env >/dev/null || true
 fi
 
-sudo tee /etc/systemd/system/odoo-synth-webhook.service >/dev/null <<UNIT
+sudo tee /etc/systemd/system/odooshadow-webhook.service >/dev/null <<UNIT
 [Unit]
-Description=odoo-synth GitHub webhook listener (issue -> env + agent)
+Description=odooshadow GitHub webhook listener (issue -> env + agent)
 After=network-online.target coder-server.service
 Wants=network-online.target
 [Service]
 Type=simple
 User=root
 WorkingDirectory=$REMOTE_DIR
-EnvironmentFile=/etc/odoo-synth/webhook.env
+EnvironmentFile=/etc/odooshadow/webhook.env
 ExecStart=$REMOTE_DIR/.venv/bin/python3 $REMOTE_DIR/scripts/webhook_listener.py
 Restart=always
 RestartSec=5
@@ -184,8 +184,8 @@ RestartSec=5
 WantedBy=multi-user.target
 UNIT
 sudo systemctl daemon-reload
-sudo systemctl enable --now odoo-synth-webhook
-sudo systemctl restart odoo-synth-webhook
+sudo systemctl enable --now odooshadow-webhook
+sudo systemctl restart odooshadow-webhook
 REMOTE
 
 log "webhook listener installed (localhost only: 127.0.0.1:$PORT) -- Caddy fronts it."
@@ -196,6 +196,6 @@ log "  Content type: application/json"
 log "  Events: Issues ; Secret: <same as GITHUB_WEBHOOK_SECRET>"
 
 if [ "$DOSTATUS" = 1 ]; then
-  ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "systemctl --no-pager status odoo-synth-webhook" 2>&1 || true
+  ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "systemctl --no-pager status odooshadow-webhook" 2>&1 || true
 fi
 log "done."

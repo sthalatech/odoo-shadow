@@ -41,7 +41,7 @@ res.partner:
 
 res.partner.bank:
   fields:
-    acc_number:           { strategy: fake_iban, note: "Odoo stores both IBAN and non-IBAN account numbers in this field; fake_iban falls back to fake_bank_account_number logic for non-IBAN formats — check odoo_synth.fake_iban's fallback branch matches your locale mix." }
+    acc_number:           { strategy: fake_iban, note: "Odoo stores both IBAN and non-IBAN account numbers in this field; fake_iban falls back to fake_bank_account_number logic for non-IBAN formats — check odooshadow.fake_iban's fallback branch matches your locale mix." }
     acc_holder_name:      { strategy: fake_person_name }
     sanitized_acc_number: { strategy: drop, note: "Computed/stored digest of acc_number — must be dropped in lockstep with acc_number or it becomes the leak." }
 

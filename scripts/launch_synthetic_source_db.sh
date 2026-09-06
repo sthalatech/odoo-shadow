@@ -13,13 +13,13 @@
 set -euo pipefail
 
 REGION="${AWS_REGION:-us-east-1}"
-PROJECT="${PROJECT:-odoo-synth}"
+PROJECT="${PROJECT:-odooshadow}"
 AMI="${ENV_AMI_ID:-ami-020f580da88780fd1}"      # golden AMI (docker+awscli baked in)
 INSTANCE_TYPE="t3.medium"
-DUMP_BUCKET="odoo-synth-dumps-676206949426"
+DUMP_BUCKET="odooshadow-dumps-676206949426"
 DEFAULT_DUMP="s3://${DUMP_BUCKET}/masked-dumps/40e095c4fca3/masked.dump"  # 69 MB, smallest
-NAME="odoo-synth-synthdb"
-TAG="Resource=odoo-synth-synthdb"
+NAME="odooshadow-synthdb"
+TAG="Resource=odooshadow-synthdb"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
@@ -60,7 +60,7 @@ echo "    vpc: $VPC_ID ($VPC_CIDR) | subnet: $SUBNET_ID"
 SG_ID=$(aws ec2 describe-security-groups --region "$REGION" --group-names "${NAME}-sg" --query "SecurityGroups[0].GroupId" --output text 2>/dev/null || true)
 if [[ -z "$SG_ID" || "$SG_ID" == "None" ]]; then
   SG_ID=$(aws ec2 create-security-group --region "$REGION" \
-          --group-name "${NAME}-sg" --description "synthetic source DB for odoo-synth testing" \
+          --group-name "${NAME}-sg" --description "synthetic source DB for odooshadow testing" \
           --vpc-id "$VPC_ID" --query "GroupId" --output text)
   # 5432 from the VPC (runner workspaces live here) + SSH from anywhere (for debugging)
   aws ec2 authorize-security-group-ingress --region "$REGION" --group-id "$SG_ID" \
@@ -84,7 +84,7 @@ IID=$(aws ec2 run-instances --region "$REGION" \
       --image-id "$AMI" --instance-type "$INSTANCE_TYPE" \
       --key-name "$KEY_NAME" --subnet-id "$SUBNET_ID" \
       --security-group-ids "$SG_ID" --associate-public-ip-address \
-      --iam-instance-profile "Name=odoo-synth-env-instance" \
+      --iam-instance-profile "Name=odooshadow-env-instance" \
       --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$NAME}]" \
       --block-device-mappings "DeviceName=/dev/sda1,Ebs={VolumeSize=30,VolumeType=gp3}" \
       --query "Instances[0].InstanceId" --output text)
@@ -140,7 +140,7 @@ echo " public ip  : $PUB_IP    (for SSH debugging: ssh -i $KEY_FILE ubuntu@$PUB_
 echo " credentials: user=runner password=runner db=masked port=5432"
 echo ""
 echo " Create a profile on the test VM pointing at it:"
-echo "   odoo-synth profile create \\"
+echo "   odooshadow profile create \\"
 echo "     --label 'Synthetic Source' \\"
 echo "     --odoo-series 17.0 --odoo-git-ref 17.0 \\"
 echo "     --addons-git-url https://github.com/odoo/odoo --addons-git-ref 17.0 \\"
@@ -148,7 +148,7 @@ echo "     --no-ssh \\"
 echo "     --source-dsn postgresql://runner:runner@$PRIV_IP:5432/masked \\"
 echo "     --git-token ghp_..."
 echo ""
-echo " Then:  odoo-synth profile discover <profile_id>"
+echo " Then:  odooshadow profile discover <profile_id>"
 echo ""
 echo " Tear down when done:"
 echo "   scripts/launch_synthetic_source_db.sh --teardown"

@@ -72,7 +72,7 @@ CODER_SG_NAME="$CODER_NAME-sg"
 CODER_SG_ID="$(sg_id "$CODER_SG_NAME")"
 if [ -z "$CODER_SG_ID" ] || [ "$CODER_SG_ID" = "None" ]; then
   CODER_SG_ID="$(aws ec2 create-security-group --group-name "$CODER_SG_NAME" \
-    --description "odoo-synth Coder server (dashboard + workspace agent ingress)" \
+    --description "odooshadow Coder server (dashboard + workspace agent ingress)" \
     --vpc-id "$VPC" --region "$AWS_REGION" --query GroupId --output text)"
   log "created SG $CODER_SG_NAME = $CODER_SG_ID"
 fi
@@ -115,7 +115,7 @@ RUNNER_ROLE_NAME="${RUNNER_INSTANCE_PROFILE:-$PROJECT-runner-instance}"
 RUNNER_ROLE_ARN="$(aws iam get-role --role-name "$RUNNER_ROLE_NAME" \
   --query 'Role.Arn' --output text 2>/dev/null || true)"
 # Option E: the Coder server also launches BUILDER workspaces, which assume
-# the odoo-synth-builder role (distinct from the env role -- ECR push + S3 +
+# the odooshadow-builder role (distinct from the env role -- ECR push + S3 +
 # Secrets + self-terminate). The server needs iam:PassRole on it too.
 BUILDER_ROLE="${BUILDER_ROLE:-$PROJECT-builder}"
 BUILDER_ROLE_ARN="$(aws iam get-role --role-name "$BUILDER_ROLE" \
@@ -133,9 +133,9 @@ print(json.dumps({
                 "ec2:CreateTags","ec2:DeleteTags"],
      "Resource": "*"},
     # PassRole targets the ROLE the workspace VM assumes (not its instance profile).
-    # Covers the dev-env role (odoo-synth-workspacer), the runner role
-    # (odoo-synth-discoverer, odoo-synth-masker -- C4 split), and the builder
-    # role (odoo-synth-builder), so the Coder server can provision workspaces
+    # Covers the dev-env role (odooshadow-workspacer), the runner role
+    # (odooshadow-discoverer, odooshadow-masker -- C4 split), and the builder
+    # role (odooshadow-builder), so the Coder server can provision workspaces
     # from all four templates.
     {"Sid": "PassWorkspaceRoles", "Effect": "Allow",
      "Action": ["iam:PassRole"],
@@ -244,7 +244,7 @@ CODER_LOG_FILTER=debug
 EENV
 cat > /etc/systemd/system/coder-server.service <<'UNIT'
 [Unit]
-Description=Coder server (odoo-synth dev-env control plane)
+Description=Coder server (odooshadow dev-env control plane)
 After=network-online.target
 Wants=network-online.target
 [Service]
@@ -285,7 +285,7 @@ UD_EOF
       --iam-instance-profile "Name=$CODER_PROFILE" \
       --block-device-mappings "DeviceName=/dev/sda1,Ebs={VolumeSize=$CODER_VOLUME_GB,VolumeType=gp3}" \
       --user-data "file://$UD" \
-      --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$CODER_NAME},{Key=odoo-synth:managed,Value=true},{Key=odoo-synth:control-plane,Value=true}]" \
+      --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$CODER_NAME},{Key=odooshadow:managed,Value=true},{Key=odooshadow:control-plane,Value=true}]" \
       --query 'Instances[0].InstanceId' --output text 2>&1)" || true
     case "$I_ID" in
       i-*) break ;;                       # got an instance id -> success

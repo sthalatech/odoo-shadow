@@ -7,7 +7,7 @@ re-reading a developer's local env. Operator overrides (component.env.
 overrides) always win over anything auto-wired.
 
 All new (non-odoo) components run `--network host` in the workspace, same as
-every other odoo-synth Coder template (discoverer/masker/builder) -- env-db
+every other odooshadow Coder template (discoverer/masker/builder) -- env-db
 is reachable at 127.0.0.1:5432 regardless (it's published there for exactly
 this reason), so plain localhost:<port> resolution works uniformly whether a
 peer is a docker container or a native process/static server.

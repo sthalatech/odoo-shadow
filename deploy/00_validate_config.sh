@@ -17,7 +17,7 @@ echo "== config source: config.yaml =="
 # Odoo provenance (series/git_url/git_ref/image), custom addons, and ALL
 # database credentials (source/masked names + users + passwords, admin/master
 # passwords) are NOT checked here: they are per-PROFILE and per-MASK/run
-# concerns, supplied downstream via `odoo-synth profile create` and the
+# concerns, supplied downstream via `odooshadow profile create` and the
 # mask/env CLI commands. The Odoo image is never built at install time.
 for v in AWS_REGION PROJECT DUMP_S3_BUCKET GREENMASK_VERSION; do
   req_cfg "$v"

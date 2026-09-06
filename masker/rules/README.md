@@ -1,4 +1,4 @@
-# odoo-synth rulebook
+# odooshadow rulebook
 
 > **Status (C1 — DevOps review):** This rulebook is a **specification ahead of
 > implementation.** Nothing in the masker pipeline currently reads these files.
@@ -24,7 +24,7 @@ fields are sensitive** — that's what these files are.
 
 ## Layout
 
-Files are numbered so `odoo-synth` applies them in a predictable order
+Files are numbered so `odooshadow` applies them in a predictable order
 and so reviewers can find things by app area:
 
 | File | Covers |
@@ -101,7 +101,7 @@ redacted" for a tool whose entire purpose is safety.
 ## Extending this rulebook
 
 Every OCA/enterprise module you install adds models with fields nobody's
-reviewed yet. That's what `odoo-synth rules scan` is for — it flags new
+reviewed yet. That's what `odooshadow rules scan` is for — it flags new
 `Char`/`Text`/`Many2one(res.partner)` fields on any installed model that
 aren't yet declared `keep` or given a strategy here, and `rules diff`
 runs the same check in CI against a schema snapshot so this rulebook

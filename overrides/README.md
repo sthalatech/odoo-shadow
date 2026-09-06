@@ -25,8 +25,8 @@ real repo URLs, ports, and `env.overrides` (including any real secrets --
 that's exactly why this folder is gitignored). Apply with:
 
 ```
-odoo-synth profile create --components-file overrides/components.yaml \
+odooshadow profile create --components-file overrides/components.yaml \
                            --dependencies-file overrides/dependencies.yaml ...
-odoo-synth profile update <id> --components-file overrides/components.yaml \
+odooshadow profile update <id> --components-file overrides/components.yaml \
                                 --dependencies-file overrides/dependencies.yaml
 ```

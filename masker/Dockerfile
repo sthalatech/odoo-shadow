@@ -1,4 +1,4 @@
-# masker image: postgres 16 client/server libs + greenmask + odoo-synth rules.
+# masker image: postgres 16 client/server libs + greenmask + odooshadow rules.
 FROM postgres:16
 
 ARG GREENMASK_VERSION=v0.2.22

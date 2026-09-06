@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tear down ALL odoo-synth AWS resources. Safe to re-run (idempotent).
+# Tear down ALL odooshadow AWS resources. Safe to re-run (idempotent).
 #
 # Coder is the only compute path (no ECS/Fargate, no ALB). What remains to
 # clean up: the Coder server EC2 instance + its SG, any stray workspace VMs
@@ -8,13 +8,13 @@
 # This script is self-contained: it does NOT load config.yaml (teardown shouldn't
 # require the source-DB/Coder secrets just to delete infra). It needs only an AWS
 # region and the project name. Region comes from $AWS_REGION / aws config / the
-# default region; project defaults to "odoo-synth" and can be overridden with
+# default region; project defaults to "odooshadow" and can be overridden with
 # $PROJECT or --project <name>. ECR repos are kept unless --ecr is passed.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 export AWS_PAGER=""
 
-PROJECT="odoo-synth"
+PROJECT="odooshadow"
 ECR_DELETE=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -24,7 +24,7 @@ while [ $# -gt 0 ]; do
     -h|--help)
       echo "usage: bash deploy/teardown.sh [--ecr] [--project <name>]"
       echo "  --ecr           also delete the ECR repos (masker/discovery/odoo)"
-      echo "  --project <n>   project name (default: odoo-synth; used for SG + ECR names)"
+      echo "  --project <n>   project name (default: odooshadow; used for SG + ECR names)"
       exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 1 ;;
   esac
@@ -42,27 +42,27 @@ R="$AWS_REGION"
 
 log(){ echo "== $* ==" >&2; }
 
-log "tearing down odoo-synth in $R (project=$PROJECT) ..."
+log "tearing down odooshadow in $R (project=$PROJECT) ..."
 
-log "terminating Coder server + odoo-synth workspace VMs ..."
-# Every odoo-synth-launched instance (the workspacer/builder/discoverer/masker
+log "terminating Coder server + odooshadow workspace VMs ..."
+# Every odooshadow-launched instance (the workspacer/builder/discoverer/masker
 # templates' workspace VMs, and the Coder server itself) carries
-# odoo-synth:managed=true. The per-role tags (odoo-synth:workspacer/builder/
+# odooshadow:managed=true. The per-role tags (odooshadow:workspacer/builder/
 # discoverer/masker) exist too, but their VALUE is the workspace id/issue/phase
 # -- never the literal string "true" -- so filtering on those directly never
-# matches anything; odoo-synth:managed is the one tag actually set to "true".
+# matches anything; odooshadow:managed is the one tag actually set to "true".
 for iid in $(aws ec2 describe-instances --region "$R" \
-    --filters "Name=tag:odoo-synth:managed,Values=true" \
+    --filters "Name=tag:odooshadow:managed,Values=true" \
               "Name=instance-state-name,Values=running,pending,stopping,stopped" \
     --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null); do
   aws ec2 terminate-instances --region "$R" --instance-ids "$iid" >/dev/null 2>&1 || true
 done
 # Redundant with the loop above (the Coder server also carries
-# odoo-synth:managed=true), but kept as a defense-in-depth guarantee the
+# odooshadow:managed=true), but kept as a defense-in-depth guarantee the
 # server is terminated even if that tagging convention ever changes.
 # Re-terminating an already-terminating instance is a harmless no-op.
 for iid in $(aws ec2 describe-instances --region "$R" \
-    --filters "Name=tag:odoo-synth:control-plane,Values=true" \
+    --filters "Name=tag:odooshadow:control-plane,Values=true" \
               "Name=instance-state-name,Values=running,pending,stopping,stopped" \
     --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null); do
   aws ec2 terminate-instances --region "$R" --instance-ids "$iid" >/dev/null 2>&1 || true

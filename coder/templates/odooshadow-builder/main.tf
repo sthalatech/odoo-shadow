@@ -1,10 +1,10 @@
-# Coder template: the odoo-synth BUILDER workspace (Option E, Phase 2).
+# Coder template: the odooshadow BUILDER workspace (Option E, Phase 2).
 #
 # Replaces the panel's hand-rolled ephemeral builder EC2 (build.py:
 # _launch_builder -> run_instances + self-terminating user-data) with a Coder
 # workspace. The panel keeps its orchestration role: it packages the odoo/
 # build context, uploads it to S3, presigns a result PUT URL, then launches this
-# workspace with `coder create -t odoo-synth-builder` passing those URLs + the
+# workspace with `coder create -t odooshadow-builder` passing those URLs + the
 # target image URI + provenance as parameters. The workspace's startup_script
 # runs the image-build logic (download context -> docker
 # build -> push to ECR -> PUT result JSON to S3), then powers off. The panel
@@ -13,7 +13,7 @@
 # only the COMPUTE moves to Coder.
 #
 # Privilege wall preserved: this workspace uses the BUILDER instance profile
-# (odoo-synth-builder-instance -> ECR push + S3 r/w on dumps bucket + Secrets
+# (odooshadow-builder-instance -> ECR push + S3 r/w on dumps bucket + Secrets
 # Manager profile/env read + self-terminate), which is distinct from and never
 # attached to developer environments. Dev envs keep the unprivileged env profile
 # (ECR pull only, no source DB, no push). The builder workspace is short-lived
@@ -53,7 +53,7 @@ terraform {
 data "aws_security_groups" "env_sg" {
   filter {
     name   = "group-name"
-    values = ["odoo-synth-env-sg"]
+    values = ["odooshadow-env-sg"]
   }
 }
 
@@ -100,7 +100,7 @@ locals {
 
   instance_profile = coalesce(
     data.coder_parameter.instance_profile.value,
-    "odoo-synth-builder-instance",
+    "odooshadow-builder-instance",
   )
 
   sg_id = coalesce(
@@ -325,7 +325,7 @@ resource "coder_agent" "main" {
     #!/usr/bin/env bash
     set -uo pipefail
     cd /root
-    exec > >(tee -a /var/log/odoo-synth-build.log) 2>&1
+    exec > >(tee -a /var/log/odooshadow-build.log) 2>&1
     echo "[build] $(date -u) starting build for ${data.coder_parameter.image_uri.value}"
 
     REGION="${data.coder_parameter.region.value}"
@@ -344,7 +344,7 @@ resource "coder_agent" "main" {
     COMPONENT_REPO_REF="${data.coder_parameter.component_repo_ref.value}"
     COMPONENT_DOCKERFILE="${data.coder_parameter.component_dockerfile.value}"
 
-    LOG=/var/log/odoo-synth-build.log
+    LOG=/var/log/odooshadow-build.log
     STATUS="failed"
     ERROR=""
     RESOLVED_REF=""
@@ -489,13 +489,13 @@ resource "aws_instance" "workspace" {
   EOT
   user_data_replace_on_change = true
   tags = {
-    Name                 = "odoo-synth-builder-${data.coder_parameter.issue.value}"
-    "odoo-synth:builder" = data.coder_parameter.issue.value
-    "odoo-synth:managed" = "true"
+    Name                 = "odooshadow-builder-${data.coder_parameter.issue.value}"
+    "odooshadow:builder" = data.coder_parameter.issue.value
+    "odooshadow:managed" = "true"
     # C5 (DevOps review): the builder SelfTerminate IAM grant conditions on
     # this tag, so only builder instances can self-terminate -- not the Coder
     # server (control plane) or any dev workspace.
-    "odoo-synth:role"    = "builder"
+    "odooshadow:role"    = "builder"
   }
 }
 

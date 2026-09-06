@@ -1,4 +1,4 @@
-# Coder template: the odoo-synth DISCOVERER workspace.
+# Coder template: the odooshadow DISCOVERER workspace.
 #
 # Runs lib/backend/discovery.py's provenance discovery: connects to a live
 # source Odoo DB + its addons repo, and produces a discovery.json describing
@@ -8,7 +8,7 @@
 # code:
 #
 #   panel writes an env-file to S3 (presigned PUT+GET) + presigns a result URL
-#   panel launches `coder create -t odoo-synth-discoverer` passing image URI +
+#   panel launches `coder create -t odooshadow-discoverer` passing image URI +
 #     the env-file GET URL + the result PUT URL
 #   workspace startup_script: docker pull the image, download the env-file,
 #     `docker run --env-file` the container, stream its stdout/stderr to the
@@ -20,16 +20,16 @@
 # result. Provenance (profile discovery_hash, installed_modules, etc.) stays in
 # the profile's YAML file -- only the COMPUTE moves to Coder.
 #
-# Was previously folded into a shared "odoo-synth-runner" template (also used
+# Was previously folded into a shared "odooshadow-runner" template (also used
 # for masking); split out so each Coder template maps to one distinct job.
-# See odoo-synth-masker for the mask counterpart -- identical infra/launch
+# See odooshadow-masker for the mask counterpart -- identical infra/launch
 # shape, different container image and no local-postgres-target step.
 #
 # Privilege wall: this workspace uses the runner-instance role
-# (odoo-synth-runner-instance -> ECR pull + profile/* source-DB creds in the
+# (odooshadow-runner-instance -> ECR pull + profile/* source-DB creds in the
 # IAM). All other source DB / SSH / git secrets travel in the S3 env-file
 # (presigned, short-lived), never baked into the image. The builder profile
-# (ECR push + Secrets + self-terminate) is reserved for the odoo-synth-builder
+# (ECR push + Secrets + self-terminate) is reserved for the odooshadow-builder
 # template and is never attached here. Short-lived (poweroff after the job)
 # and has no inbound ports (egress-only; the Coder agent dials out).
 #
@@ -59,7 +59,7 @@ data "coder_workspace" "me" {}
 data "aws_security_groups" "env_sg" {
   filter {
     name   = "group-name"
-    values = ["odoo-synth-env-sg"]
+    values = ["odooshadow-env-sg"]
   }
 }
 
@@ -110,7 +110,7 @@ locals {
   # which grants profile/* access. The env-instance role (dev workspaces) does NOT.
   instance_profile = coalesce(
     data.coder_parameter.instance_profile.value,
-    "odoo-synth-runner-instance",
+    "odooshadow-runner-instance",
   )
 
   sg_id = coalesce(
@@ -175,7 +175,7 @@ data "coder_parameter" "instance_type" {
 }
 
 # the single container to run (e.g. <acct>.dkr.ecr.us-east-1.amazonaws.com/
-# odoo-synth/discovery:latest).
+# odooshadow/discovery:latest).
 data "coder_parameter" "image_uri" {
   name         = "image_uri"
   display_name = "Container image to run (ECR URI)"
@@ -236,7 +236,7 @@ resource "coder_agent" "main" {
     #!/usr/bin/env bash
     set -uo pipefail
     cd /root
-    exec > >(tee -a /var/log/odoo-synth-discoverer.log) 2>&1
+    exec > >(tee -a /var/log/odooshadow-discoverer.log) 2>&1
     echo "[discoverer] $(date -u) starting phase=${data.coder_parameter.phase.value} image=${data.coder_parameter.image_uri.value}"
 
     REGION="${data.coder_parameter.region.value}"
@@ -246,7 +246,7 @@ resource "coder_agent" "main" {
     RESULT_PUT_URL="${data.coder_parameter.result_put_url.value}"
     PHASE="${data.coder_parameter.phase.value}"
 
-    LOG=/var/log/odoo-synth-discoverer.log
+    LOG=/var/log/odooshadow-discoverer.log
     STATUS="failed"
     EXIT_CODE=1
     ERROR=""
@@ -378,9 +378,9 @@ resource "aws_instance" "workspace" {
   EOT
   user_data_replace_on_change = true
   tags = {
-    Name                     = "odoo-synth-discoverer-${data.coder_parameter.phase.value}"
-    "odoo-synth:discoverer"  = data.coder_parameter.phase.value
-    "odoo-synth:managed"     = "true"
+    Name                     = "odooshadow-discoverer-${data.coder_parameter.phase.value}"
+    "odooshadow:discoverer"  = data.coder_parameter.phase.value
+    "odooshadow:managed"     = "true"
   }
 }
 

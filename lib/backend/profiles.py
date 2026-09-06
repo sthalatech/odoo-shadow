@@ -155,13 +155,13 @@ def _region() -> str:
 
 def _secret_prefix() -> str:
     e = config.environments_cfg() if hasattr(config, "environments_cfg") else {}
-    return (e.get("secret_prefix") or "odoo-synth/env").rsplit("/", 1)[0] + "/profile"
+    return (e.get("secret_prefix") or "odooshadow/env").rsplit("/", 1)[0] + "/profile"
 
 
 def _is_profile_scoped_secret(arn: Optional[str]) -> bool:
     """True if a secret ARN/name was minted by this profile store (and is thus
     safe for `profile delete` to delete). Secrets outside the profile prefix
-    -- e.g. a reused `odoo-synth/env/git-token` passed via `--git-token-secret`
+    -- e.g. a reused `odooshadow/env/git-token` passed via `--git-token-secret`
     -- are owned elsewhere and must NOT be deleted here."""
     if not arn:
         return False
@@ -174,7 +174,7 @@ def _put_secret(name: str, value: str) -> str:
     sm = boto3.client("secretsmanager", region_name=_region())
     try:
         resp = sm.create_secret(Name=name, SecretString=value,
-                                Description="odoo-synth profile secret")
+                                Description="odooshadow profile secret")
         return resp["ARN"]
     except sm.exceptions.ResourceExistsException:
         sm.put_secret_value(SecretId=name, SecretString=value)
@@ -220,7 +220,7 @@ def _put_coder_git_token(profile_id: str, token: str) -> str:
     # fail under network latency.
     create = subprocess.run(
         ["coder", "secret", "create", name,
-         "--description", f"odoo-synth git token for profile {profile_id}",
+         "--description", f"odooshadow git token for profile {profile_id}",
          "--env", env_target, "--value", token],
         env=_coder_env(), stdin=subprocess.DEVNULL,
         capture_output=True, text=True, timeout=120)
@@ -257,7 +257,7 @@ def _delete_secret(arn: Optional[str]) -> None:
     if not arn:
         return
     # Only delete secrets this profile store created. A secret passed in via
-    # --git-token-secret (e.g. the shared odoo-synth/env/git-token) is owned by
+    # --git-token-secret (e.g. the shared odooshadow/env/git-token) is owned by
     # the env/deploy layer and must survive a profile delete.
     if not _is_profile_scoped_secret(arn):
         return

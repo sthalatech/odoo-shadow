@@ -1,4 +1,4 @@
-# Coder template: the odoo-synth MASKER workspace.
+# Coder template: the odooshadow MASKER workspace.
 #
 # Runs lib/backend/pipeline.py's mask orchestration: dumps + masks a live
 # source Odoo DB (greenmask), restores into a throwaway local postgres on this
@@ -7,7 +7,7 @@
 # env vars, streams logs, exits with a code:
 #
 #   panel writes an env-file to S3 (presigned PUT+GET) + presigns a result URL
-#   panel launches `coder create -t odoo-synth-masker` passing image URI + the
+#   panel launches `coder create -t odooshadow-masker` passing image URI + the
 #     env-file GET URL + the result PUT URL
 #   workspace startup_script: docker pull the image, start a throwaway local
 #     postgres target, download the env-file, `docker run --env-file` the
@@ -20,17 +20,17 @@
 # result. Provenance (profile discovery_hash, installed_modules, etc.) stays in
 # the profile's YAML file -- only the COMPUTE moves to Coder.
 #
-# Was previously folded into a shared "odoo-synth-runner" template (also used
+# Was previously folded into a shared "odooshadow-runner" template (also used
 # for discovery); split out so each Coder template maps to one distinct job.
-# See odoo-synth-discoverer for the discover counterpart -- identical
+# See odooshadow-discoverer for the discover counterpart -- identical
 # infra/launch shape, different container image and no local-postgres-target
 # step.
 #
 # Privilege wall: this workspace uses the runner-instance role
-# (odoo-synth-runner-instance -> ECR pull + profile/* source-DB creds in the
+# (odooshadow-runner-instance -> ECR pull + profile/* source-DB creds in the
 # IAM). All other source DB / SSH / git secrets travel in the S3 env-file
 # (presigned, short-lived), never baked into the image. The builder profile
-# (ECR push + Secrets + self-terminate) is reserved for the odoo-synth-builder
+# (ECR push + Secrets + self-terminate) is reserved for the odooshadow-builder
 # template and is never attached here. Short-lived (poweroff after the mask)
 # and has no inbound ports (egress-only; the Coder agent dials out).
 #
@@ -60,7 +60,7 @@ data "coder_workspace" "me" {}
 data "aws_security_groups" "env_sg" {
   filter {
     name   = "group-name"
-    values = ["odoo-synth-env-sg"]
+    values = ["odooshadow-env-sg"]
   }
 }
 
@@ -111,7 +111,7 @@ locals {
   # grants profile/* access. The env-instance role (dev workspaces) does NOT.
   instance_profile = coalesce(
     data.coder_parameter.instance_profile.value,
-    "odoo-synth-runner-instance",
+    "odooshadow-runner-instance",
   )
 
   sg_id = coalesce(
@@ -176,7 +176,7 @@ data "coder_parameter" "instance_type" {
 }
 
 # the single container to run (e.g. <acct>.dkr.ecr.us-east-1.amazonaws.com/
-# odoo-synth/masker:latest).
+# odooshadow/masker:latest).
 data "coder_parameter" "image_uri" {
   name         = "image_uri"
   display_name = "Container image to run (ECR URI)"
@@ -237,7 +237,7 @@ resource "coder_agent" "main" {
     #!/usr/bin/env bash
     set -uo pipefail
     cd /root
-    exec > >(tee -a /var/log/odoo-synth-masker.log) 2>&1
+    exec > >(tee -a /var/log/odooshadow-masker.log) 2>&1
     echo "[masker] $(date -u) starting phase=${data.coder_parameter.phase.value} image=${data.coder_parameter.image_uri.value}"
 
     REGION="${data.coder_parameter.region.value}"
@@ -247,7 +247,7 @@ resource "coder_agent" "main" {
     RESULT_PUT_URL="${data.coder_parameter.result_put_url.value}"
     PHASE="${data.coder_parameter.phase.value}"
 
-    LOG=/var/log/odoo-synth-masker.log
+    LOG=/var/log/odooshadow-masker.log
     STATUS="failed"
     EXIT_CODE=1
     ERROR=""
@@ -401,9 +401,9 @@ resource "aws_instance" "workspace" {
   EOT
   user_data_replace_on_change = true
   tags = {
-    Name                 = "odoo-synth-masker-${data.coder_parameter.phase.value}"
-    "odoo-synth:masker"  = data.coder_parameter.phase.value
-    "odoo-synth:managed" = "true"
+    Name                 = "odooshadow-masker-${data.coder_parameter.phase.value}"
+    "odooshadow:masker"  = data.coder_parameter.phase.value
+    "odooshadow:managed" = "true"
   }
 }
 

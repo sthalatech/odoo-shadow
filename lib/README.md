@@ -1,7 +1,7 @@
-# odoo-synth control panel → CLI (Phase C2)
+# odooshadow control panel → CLI (Phase C2)
 
-The FastAPI web panel has been replaced by a single CLI: **`odoo-synth`**
-(lives at [`../cli/odoo-synth`](../cli/odoo-synth)). The CLI calls the **same
+The FastAPI web panel has been replaced by a single CLI: **`odooshadow`**
+(lives at [`../cli/odooshadow`](../cli/odooshadow)). The CLI calls the **same
 backend library modules** in `backend/` directly over an in-process call
 boundary — there is no HTTP server any more. Run history and logs are still
 persisted as YAML (profiles under `profiles/`, environments in `envs.yaml`)
@@ -15,16 +15,16 @@ cache that auto-populates from S3 on read.
 > **User management** is no longer exposed here — use the native Coder CLI:
 >   `coder users create alice@example.com` / `coder users list`.
 > **Workspace creation** is via the Coder dashboard (presets) or
->   `coder create -t odoo-synth-workspacer ...`. The CLI still launches/tears down
->   developer workspaces via `odoo-synth workspace ...` (it calls `coder create`
+>   `coder create -t odooshadow-workspacer ...`. The CLI still launches/tears down
+>   developer workspaces via `odooshadow workspace ...` (it calls `coder create`
 >   under the hood).
 
 ## Install
 
 ```bash
-bash deploy/00_install_prereqs.sh    # installs tools + symlinks odoo-synth onto PATH
+bash deploy/00_install_prereqs.sh    # installs tools + symlinks odooshadow onto PATH
 # or, manually:
-sudo ln -sf /home/exedev/odoo-synth-coder/cli/odoo-synth /usr/local/bin/odoo-synth
+sudo ln -sf /home/exedev/odooshadow-coder/cli/odooshadow /usr/local/bin/odooshadow
 ```
 
 Run from anywhere — the CLI resolves the repo root from its own location and
@@ -33,31 +33,31 @@ adds `lib/` to `sys.path` so it can `from backend import …`.
 ## Commands
 
 ```
-odoo-synth --help
-odoo-synth profile create --label <l> --source-dsn postgresql://… [--ssh-* …] [--odoo-series 19.0 …]
-odoo-synth profile list [--json]
-odoo-synth profile show <id>
-odoo-synth profile update <id> [--label …] [--source-dsn …]
-odoo-synth profile delete <id>
-odoo-synth profile discover <id>            # synchronous; streams logs to stdout
-odoo-synth profile build <id>               # synchronous; streams logs to stdout
-odoo-synth profile images <id> [--json]
-odoo-synth profile images delete <id> --image <uri>
-odoo-synth profile masking-rules <id> [--json]
-odoo-synth profile masking-rules <id> --set <file|->   # update from YAML (file or stdin)
-odoo-synth profile masking-rules <id> --reset          # reset to discovered plan
-odoo-synth profile mask <id>                           # profile path (produces a dump)
-odoo-synth run mask --source-dsn <dsn> [--mask-profile …] [--produce-dump] [--ssh-* …]  # legacy inline
-odoo-synth run list [--json]
-odoo-synth run show <id>
-odoo-synth run logs <id> [--follow]                    # print stored logs; --follow polls
-odoo-synth workspace list [--json]
-odoo-synth workspace create --profile-id <id> | --source-run-id <id> | --dump-s3-uri s3://…
-odoo-synth workspace show <workspace_id>
-odoo-synth workspace password <workspace_id>
-odoo-synth workspace delete <workspace_id>
-odoo-synth workspace config
-odoo-synth config                            # non-secret infra summary
+odooshadow --help
+odooshadow profile create --label <l> --source-dsn postgresql://… [--ssh-* …] [--odoo-series 19.0 …]
+odooshadow profile list [--json]
+odooshadow profile show <id>
+odooshadow profile update <id> [--label …] [--source-dsn …]
+odooshadow profile delete <id>
+odooshadow profile discover <id>            # synchronous; streams logs to stdout
+odooshadow profile build <id>               # synchronous; streams logs to stdout
+odooshadow profile images <id> [--json]
+odooshadow profile images delete <id> --image <uri>
+odooshadow profile masking-rules <id> [--json]
+odooshadow profile masking-rules <id> --set <file|->   # update from YAML (file or stdin)
+odooshadow profile masking-rules <id> --reset          # reset to discovered plan
+odooshadow profile mask <id>                           # profile path (produces a dump)
+odooshadow run mask --source-dsn <dsn> [--mask-profile …] [--produce-dump] [--ssh-* …]  # legacy inline
+odooshadow run list [--json]
+odooshadow run show <id>
+odooshadow run logs <id> [--follow]                    # print stored logs; --follow polls
+odooshadow workspace list [--json]
+odooshadow workspace create --profile-id <id> | --source-run-id <id> | --dump-s3-uri s3://…
+odooshadow workspace show <workspace_id>
+odooshadow workspace password <workspace_id>
+odooshadow workspace delete <workspace_id>
+odooshadow workspace config
+odooshadow config                            # non-secret infra summary
 ```
 
 `--verbose` shows full tracebacks on error; otherwise errors print one line to
@@ -71,13 +71,13 @@ call the backend op (`discovery.run_discovery` / `build.run_build` /
 `pipeline.run_operation`) with an `emit` sink that **prints each log line to
 stdout AND appends it to the run's log table**, then `store.update_run` with the
 result. This mirrors the panel's `_worker` exactly, minus the background thread
-and SSE plumbing — so `odoo-synth run logs <id>` replays the same persisted
+and SSE plumbing — so `odooshadow run logs <id>` replays the same persisted
 logs afterwards.
 
 ## Architecture
 
 ```
-cli/odoo-synth            argparse CLI (this is the whole UI now)
+cli/odooshadow            argparse CLI (this is the whole UI now)
 lib/
   backend/                reusable library (unchanged)
     profiles.py           source-binding profiles + run_params

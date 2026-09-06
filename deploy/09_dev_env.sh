@@ -49,7 +49,7 @@ ENV_SG_NAME="$PROJECT-env-sg"
 ENV_SG_ID="$(sg_id "$ENV_SG_NAME")"
 if [ -z "$ENV_SG_ID" ] || [ "$ENV_SG_ID" = "None" ]; then
   ENV_SG_ID="$(aws ec2 create-security-group --group-name "$ENV_SG_NAME" \
-    --description "odoo-synth developer environments (odoo; Coder tunnel)" \
+    --description "odooshadow developer environments (odoo; Coder tunnel)" \
     --vpc-id "$VPC" --region "$AWS_REGION" --query GroupId --output text)"
 fi
 
@@ -188,7 +188,7 @@ log "env instance profile: $ENV_PROFILE (role $ENV_ROLE) -- NO profile/* access 
 log "runner instance profile: $RUNNER_PROFILE (role $RUNNER_ROLE) -- keeps profile/* for mask/discover"
 
 # The env workspace's addons repo URL/branch are NOT set here -- they are
-# per-PROFILE / per-workspace concerns, supplied at `odoo-synth workspace create`
+# per-PROFILE / per-workspace concerns, supplied at `odooshadow workspace create`
 # time (the env template's repo_url/repo_branch Coder parameters have no
 # default; a profile/preset pre-fills them). Nothing in config.yaml drives
 # this anymore. (The private-repo clone token is a Coder user secret, not an
@@ -228,7 +228,7 @@ UD="$(mktemp)"; trap 'rm -f "$UD"' EXIT
   # (and apt/docker helpers) need it. Export before provisioning.
   echo 'export HOME=/root'
   cat "$PROVISION"
-  echo 'touch /opt/odoo-synth-env/BAKE_OK'
+  echo 'touch /opt/odooshadow-env/BAKE_OK'
   echo 'poweroff'
 } > "$UD"
 
@@ -239,7 +239,7 @@ BUILDER_ID="$(aws ec2 run-instances --region "$AWS_REGION" \
   --instance-initiated-shutdown-behavior stop \
   --block-device-mappings 'DeviceName=/dev/sda1,Ebs={VolumeSize=30,VolumeType=gp3}' \
   --user-data "file://$UD" \
-  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value='"$PROJECT"'-env-builder},{Key=odoo-synth:managed,Value=true}]' \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value='"$PROJECT"'-env-builder},{Key=odooshadow:managed,Value=true}]' \
   --query 'Instances[0].InstanceId' --output text)"
 log "builder: $BUILDER_ID -- provisioning (docker + awscli + agent CLIs); this takes a few minutes"
 
@@ -268,7 +268,7 @@ log "builder provisioned + stopped; creating image ..."
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 ENV_AMI_ID="$(aws ec2 create-image --region "$AWS_REGION" \
   --instance-id "$BUILDER_ID" --name "$PROJECT-devenv-$STAMP" \
-  --description "odoo-synth thin dev-env AMI (ubuntu+docker+awscli+agents)" \
+  --description "odooshadow thin dev-env AMI (ubuntu+docker+awscli+agents)" \
   --query 'ImageId' --output text)"
 log "AMI $ENV_AMI_ID creating; waiting until available ..."
 aws ec2 wait image-available --region "$AWS_REGION" --image-ids "$ENV_AMI_ID"

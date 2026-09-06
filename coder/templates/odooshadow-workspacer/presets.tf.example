@@ -7,8 +7,8 @@
 # ECR image URIs, S3 dump paths, and Secrets Manager ARNs).
 #
 # To generate your own presets:
-#   1. Build a profile:  odoo-synth profile build <profile-id>
-#   2. Run masking:      odoo-synth run mask <profile-id>
+#   1. Build a profile:  odooshadow profile build <profile-id>
+#   2. Run masking:      odooshadow run mask <profile-id>
 #   3. Publish:          bash deploy/12_publish_template.sh
 #
 # Each preset becomes a one-click "Create workspace" option in the Coder
@@ -22,9 +22,9 @@ data "coder_workspace_preset" "profile_<profile_id>" {
   name        = "<profile label>"
   description = "<profile description>"
   parameters = {
-    odoo_image          = "<account-id>.dkr.ecr.<region>.amazonaws.com/odoo-synth/odoo:<profile-id>-<build-hash>"
+    odoo_image          = "<account-id>.dkr.ecr.<region>.amazonaws.com/odooshadow/odoo:<profile-id>-<build-hash>"
     dump_s3_uri         = "s3://<bucket>/masked-dumps/<run-id>/masked.dump"
-    git_token_secret    = "arn:aws:secretsmanager:<region>:<account-id>:secret:odoo-synth/profile/<profile-id>/git-token-<random>"
+    git_token_secret    = "arn:aws:secretsmanager:<region>:<account-id>:secret:odooshadow/profile/<profile-id>/git-token-<random>"
     instance_type       = "t3.large"
     odoo_conf_extra_b64 = "<base64-encoded odoo.conf extras>"
     repo_url            = "git@github.com:<your-org>/<your-repo>.git"

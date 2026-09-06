@@ -56,7 +56,7 @@ EIC_KEY="$HERE/deploy/.eic_key"
 eic_ssh(){ # instance-id az ip -- remote-cmd...
   local iid="$1" az="$2" ip="$3"; shift 3
   [ "${1:-}" = "--" ] && shift
-  [ -f "$EIC_KEY" ] || ssh-keygen -t ed25519 -f "$EIC_KEY" -N "" -q -C odoo-synth-eic >&2
+  [ -f "$EIC_KEY" ] || ssh-keygen -t ed25519 -f "$EIC_KEY" -N "" -q -C odooshadow-eic >&2
   aws ec2-instance-connect send-ssh-public-key --region "$AWS_REGION" \
     --instance-id "$iid" --availability-zone "$az" --instance-os-user ubuntu \
     --ssh-public-key "file://${EIC_KEY}.pub" >/dev/null
@@ -90,7 +90,7 @@ ensure_eip(){ # instance-id  name-tag
   if [ -z "$alloc" ]; then
     log "allocating a new Elastic IP ($name) ..."
     alloc="$(aws ec2 allocate-address --region "$AWS_REGION" --domain vpc \
-      --tag-specifications "ResourceType=elastic-ip,Tags=[{Key=Name,Value=$name},{Key=odoo-synth:managed,Value=true}]" \
+      --tag-specifications "ResourceType=elastic-ip,Tags=[{Key=Name,Value=$name},{Key=odooshadow:managed,Value=true}]" \
       --query AllocationId --output text)"
   else
     log "reusing previously-allocated Elastic IP ($name, $alloc) ..."

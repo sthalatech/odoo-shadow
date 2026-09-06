@@ -1,9 +1,9 @@
-# odoo-synth agent system prompt
+# odooshadow agent system prompt
 
 This is the default project-level system prompt every AI agent (opencode or
-claude-code) loads inside a launched odoo-synth environment. A profile can
+claude-code) loads inside a launched odooshadow environment. A profile can
 override it with its own `agent_system_prompt` (set via
-`odoo-synth profile update <id> --agent-system-prompt ...`); when a profile
+`odooshadow profile update <id> --agent-system-prompt ...`); when a profile
 prompt is set it replaces this file entirely, so copy any guidance you need
 from here into the per-profile prompt.
 

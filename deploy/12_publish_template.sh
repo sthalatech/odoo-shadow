@@ -3,14 +3,14 @@
 #
 # `coder templates push` reads the Terraform in coder/templates/<name> and
 # creates/updates the named template so workspaces can be launched from it.
-# Publishes all four odoo-synth templates -- one per distinct job:
-#   odoo-synth-workspacer  developer environments (env create)
-#   odoo-synth-builder     ephemeral Odoo image builder (profile build)
-#   odoo-synth-discoverer  provenance discovery (profile discover)
-#   odoo-synth-masker      DB masking (run/profile mask)
+# Publishes all four odooshadow templates -- one per distinct job:
+#   odooshadow-workspacer  developer environments (env create)
+#   odooshadow-builder     ephemeral Odoo image builder (profile build)
+#   odooshadow-discoverer  provenance discovery (profile discover)
+#   odooshadow-masker      DB masking (run/profile mask)
 # The panel/CLI build path launches builder workspaces from the published
 # template version, so it must be republished whenever
-# coder/templates/odoo-synth-builder changes or builds will run a stale
+# coder/templates/odooshadow-builder changes or builds will run a stale
 # user-data script. Requires CODER_URL + CODER_SESSION_TOKEN (set after
 # `coder login`).
 source "$(dirname "$0")/lib.sh"
@@ -19,15 +19,15 @@ QUIET=0
 for a in "$@"; do case "$a" in --quiet) QUIET=1;; *) ;; esac; done
 
 # Space-separated list of Coder templates to publish. Override with
-# CODER_TEMPLATES="odoo-synth-workspacer" to publish only one.
-TEMPLATES="${CODER_TEMPLATES:-odoo-synth-workspacer odoo-synth-builder odoo-synth-discoverer odoo-synth-masker}"
+# CODER_TEMPLATES="odooshadow-workspacer" to publish only one.
+TEMPLATES="${CODER_TEMPLATES:-odooshadow-workspacer odooshadow-builder odooshadow-discoverer odooshadow-masker}"
 [ -n "${CODER_URL:-}" ] || { log "CODER_URL not set; run deploy/11_coder_server.sh first"; exit 1; }
 [ -n "${CODER_SESSION_TOKEN:-}" ] || { log "CODER_SESSION_TOKEN not set; run 'coder login $CODER_URL' first"; exit 1; }
 
 # Regenerate workspace presets from the profile store (one preset per profile
 # with a built image + a successful mask run) before pushing the workspacer
 # template, so the Coder dashboard "Create workspace" flow shows every
-# available masked profile. (Only meaningful for odoo-synth-workspacer;
+# available masked profile. (Only meaningful for odooshadow-workspacer;
 # harmless for the other templates.)
 python3 "$HERE/deploy/_gen_presets.py" || log "WARN: preset generation failed (continuing)"
 
@@ -56,7 +56,7 @@ for TPL_NAME in $TEMPLATES; do
       # indefinitely. 8h is enough for a full workday; the user can extend
       # via the dashboard. Other templates (builder/masker/discoverer) are
       # short-lived by design and self-terminate, so no TTL is needed there.
-      if [ "$TPL_NAME" = "odoo-synth-workspacer" ]; then
+      if [ "$TPL_NAME" = "odooshadow-workspacer" ]; then
         coder templates edit --default-ttl 8h "$TPL_NAME" 2>&1 | tee -a "/tmp/coder-push-$TPL_NAME.log" \
           && log "  set default-ttl=8h on $TPL_NAME (H2 inactivity autostop)" \
           || log "  WARN: could not set default-ttl on $TPL_NAME (non-fatal)"

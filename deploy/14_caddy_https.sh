@@ -109,7 +109,7 @@ ${HOSTNAME} {
 		on_demand
 	}
 
-	# GitHub webhook -> odoo-synth listener (localhost only, if/when deployed
+	# GitHub webhook -> odooshadow listener (localhost only, if/when deployed
 	# by deploy/13_webhook_listener.sh). Restricted to GitHub's hook IP
 	# ranges; everyone else gets 403. The listener additionally verifies the
 	# HMAC signature + dedupes by X-GitHub-Delivery.
@@ -160,20 +160,20 @@ sudo caddy validate --config /etc/caddy/Caddyfile 2>&1 | grep -qi "valid" && ech
 
 # tls_ask.py: the on_demand_tls "ask" endpoint. Stdlib-only, no deps beyond
 # python3 (already present on the AMI).
-sudo install -d -m 755 /opt/odoo-synth-tls-ask
-sudo tee /etc/default/odoo-synth-tls-ask >/dev/null <<EENV
+sudo install -d -m 755 /opt/odooshadow-tls-ask
+sudo tee /etc/default/odooshadow-tls-ask >/dev/null <<EENV
 PUBLIC_DOMAIN=${PUBLIC_DOMAIN}
 ASK_PORT=${ASK_PORT}
 EENV
-sudo tee /etc/systemd/system/odoo-synth-tls-ask.service >/dev/null <<UNIT
+sudo tee /etc/systemd/system/odooshadow-tls-ask.service >/dev/null <<UNIT
 [Unit]
-Description=Caddy on_demand_tls ask endpoint (odoo-synth)
+Description=Caddy on_demand_tls ask endpoint (odooshadow)
 After=network-online.target
 Wants=network-online.target
 [Service]
 Type=simple
-EnvironmentFile=/etc/default/odoo-synth-tls-ask
-ExecStart=/usr/bin/python3 /opt/odoo-synth-tls-ask/tls_ask.py
+EnvironmentFile=/etc/default/odooshadow-tls-ask
+ExecStart=/usr/bin/python3 /opt/odooshadow-tls-ask/tls_ask.py
 Restart=always
 RestartSec=5
 [Install]
@@ -184,7 +184,7 @@ sudo systemctl daemon-reload
 # separate scp right after this heredoc, since it needs a local file, not
 # heredoc content); starting now would crash-loop on a missing file. `enable`
 # only (boot persistence); the scp step below does the first actual start.
-sudo systemctl enable odoo-synth-tls-ask >/dev/null 2>&1
+sudo systemctl enable odooshadow-tls-ask >/dev/null 2>&1
 
 sudo systemctl enable --now caddy >/dev/null 2>&1
 sudo systemctl reload caddy 2>/dev/null || sudo systemctl restart caddy
@@ -198,7 +198,7 @@ REMOTE
 scp -i "$EIC_KEY" -o StrictHostKeyChecking=accept-new \
   "$HERE/deploy/refresh/tls_ask.py" "ubuntu@$CODER_SERVER_IP:/tmp/tls_ask.py"
 eic_ssh "$CODER_INSTANCE_ID" "$AZ" "$CODER_SERVER_IP" -- \
-  "sudo install -m 0755 /tmp/tls_ask.py /opt/odoo-synth-tls-ask/tls_ask.py && sudo systemctl restart odoo-synth-tls-ask && echo tls-ask active: \$(systemctl is-active odoo-synth-tls-ask)"
+  "sudo install -m 0755 /tmp/tls_ask.py /opt/odooshadow-tls-ask/tls_ask.py && sudo systemctl restart odooshadow-tls-ask && echo tls-ask active: \$(systemctl is-active odooshadow-tls-ask)"
 
 log "HTTPS is live at https://$HOSTNAME/ (dashboard) and https://<slug>--<ws>--<owner>.$PUBLIC_DOMAIN/ (app tiles)."
 log "Point config.yaml / webhooks at: https://$HOSTNAME"
@@ -259,6 +259,6 @@ REMOTE
 
 if [ "$DOSTATUS" = 1 ]; then
   eic_ssh "$CODER_INSTANCE_ID" "$AZ" "$CODER_SERVER_IP" -- \
-    "systemctl --no-pager status caddy odoo-synth-tls-ask 2>&1; echo ---; sudo caddy version"
+    "systemctl --no-pager status caddy odooshadow-tls-ask 2>&1; echo ---; sudo caddy version"
 fi
 log "done."

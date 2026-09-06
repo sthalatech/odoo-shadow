@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>odoo-synth — One-Pager</title>
+<title>odooshadow — One-Pager</title>
 <style>
   :root{
     --bg:#0f1420; --panel:#171d2e; --panel2:#1f2740; --ink:#e6ebf5;
@@ -75,14 +75,14 @@
 <body>
 <div class="wrap">
 
-  <h1>odoo-synth</h1>
+  <h1>odooshadow</h1>
   <p class="sub">Production-masked Odoo dev environments on AWS &middot; one self-contained CLI pipeline</p>
   <p class="tagline">Prod DB &rarr; PII-masked dump &rarr; provenance-baked image &rarr; isolated Coder workspace (one per GitHub issue)</p>
   <div class="meta">
     <span><b>Audience:</b> IT Head &middot; Architect &middot; PM</span>
     <span><b>Compute:</b> Coder workspaces (no standing cluster)</span>
     <span><b>Cloud:</b> AWS &mdash; ECR &middot; S3 &middot; EC2</span>
-    <span><b>Interface:</b> <code>odoo-synth</code> CLI</span>
+    <span><b>Interface:</b> <code>odooshadow</code> CLI</span>
   </div>
 
   <!-- =================== 1. THE GOAL =================== -->
@@ -98,7 +98,7 @@
         </ul>
       </div>
       <div class="box">
-        <h3>What odoo-synth delivers</h3>
+        <h3>What odooshadow delivers</h3>
         <ul>
           <li>A repeatable pipeline that <b>masks a prod Odoo DB</b> into a safe dump.</li>
           <li>A <b>provenance-baked Odoo image</b> (core + addons + enterprise pinned to a commit).</li>
@@ -167,7 +167,7 @@
       </div>
     </div>
     <div class="legend">
-      <span><span class="swatch" style="background:var(--acc2)"></span>Stages 1&ndash;5 are all driven by the <code>odoo-synth</code> CLI</span>
+      <span><span class="swatch" style="background:var(--acc2)"></span>Stages 1&ndash;5 are all driven by the <code>odooshadow</code> CLI</span>
       <span><span class="swatch" style="background:var(--acc)"></span>Stages 2&middot;3&middot;4 run as <b>ephemeral Coder runner workspaces</b> &mdash; no standing compute</span>
     </div>
   </section>
@@ -178,7 +178,7 @@
     <div class="arch">
       <div class="col">
         <h4>Your machine / operator</h4>
-        <div class="node"><b>odoo-synth CLI</b><span class="k">cli/odoo-synth &middot; calls backend lib in-process &middot; no HTTP server</span></div>
+        <div class="node"><b>odooshadow CLI</b><span class="k">cli/odooshadow &middot; calls backend lib in-process &middot; no HTTP server</span></div>
         <div class="node"><b>config.yaml</b><span class="k">single source of truth &middot; secrets via <code>{ref: env:&#8230;}</code> / <code>{ref: ssm:&#8230;}</code></span></div>
         <div class="node"><b>deploy/state.env</b><span class="k">resolved AWS resource ids (ECR, AMI, subnets, SGs&hellip;)</span></div>
       </div>
@@ -213,7 +213,7 @@
         <ul>
           <li>A maintained <b>YAML map of which Odoo fields are sensitive</b>, by app area (core, accounting, HR, messaging, sales&hellip;).</li>
           <li>Each field is assigned a <b>masking strategy</b> from a fixed vocabulary (<code>fake_*</code>, <code>redact_freetext</code>, null, preserve&hellip;).</li>
-          <li>Engine = Greenmask's <code>anon</code> extension; odoo-synth owns <b>the map, not the engine</b>.</li>
+          <li>Engine = Greenmask's <code>anon</code> extension; odooshadow owns <b>the map, not the engine</b>.</li>
           <li><b>Pruning &mdash; a reduced record set, not the whole DB.</b> A per-profile <code>subset_days</code> knob keeps only the last N days of high-volume transactional tables (sales, invoices, stock, POS, mail&hellip;); master data (partners, products, journals) is retained. Done post-restore via a generic FK-cascading DELETE + orphan sweep, because Greenmask's dump-time subset engine can't handle Odoo's cyclic schema.</li>
         </ul>
       </div>
@@ -259,11 +259,11 @@
     <h2><span class="n">6</span>Repo map</h2>
     <div class="box">
       <div class="kvs">
-        <span class="k">cli/odoo-synth</span><span class="v">The CLI &mdash; the entire user interface (calls backend in-process, no HTTP)</span>
+        <span class="k">cli/odooshadow</span><span class="v">The CLI &mdash; the entire user interface (calls backend in-process, no HTTP)</span>
         <span class="k">lib/backend/</span><span class="v">Reusable library: profiles, discovery, build, pipeline (mask), environments, stores</span>
         <span class="k">masker/</span><span class="v">Greenmask image + masking rules + per-profile rule YAMLs</span>
         <span class="k">masker/rules/</span><span class="v">The rulebook: numbered YAML files mapping Odoo fields &rarr; masking strategies</span>
-        <span class="k">coder/templates/</span><span class="v">Coder Terraform templates: odoo-synth-env (dev) + odoo-synth-builder (image bake)</span>
+        <span class="k">coder/templates/</span><span class="v">Coder Terraform templates: odooshadow-env (dev) + odooshadow-builder (image bake)</span>
         <span class="k">odoo/</span><span class="v">Odoo image build context (Dockerfile, odoo.conf, entrypoint) + enterprise.zip (gitignored)</span>
         <span class="k">deploy/</span><span class="v">Infra + provisioning scripts (ECR, base images, builder IAM, Coder server, template publish)</span>
         <span class="k">config.yaml</span><span class="v">Single source of truth (gitignored &mdash; secrets)</span>
@@ -273,7 +273,7 @@
   </section>
 
   <footer>
-    <span>odoo-synth &mdash; prod-masked Odoo dev environments on AWS</span>
+    <span>odooshadow &mdash; prod-masked Odoo dev environments on AWS</span>
     <span>One-pager for IT Head / Architect / PM</span>
   </footer>
 </div>

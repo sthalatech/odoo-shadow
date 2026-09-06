@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GitHub webhook listener -> odoo-synth workspace + opencode agent launcher.
+"""GitHub webhook listener -> odooshadow workspace + opencode agent launcher.
 
 Runs ON THE CODER SERVER (the always-on control plane at CODER_SERVER_IP), NOT
 on a dev VM. GitHub POSTs `issues` events from the *profile's addons repo*
@@ -48,7 +48,7 @@ Env vars (systemd unit / EnvironmentFile):
   WEBHOOK_PORT           default 8080 (localhost only; Caddy fronts it).
   WEBHOOK_BIND           default 127.0.0.1 -- do NOT expose this directly;
                          Caddy's /webhook route is the public entry point.
-  ODOO_SYNTH_REQUIRED_LABEL  default "synth-sandbox" -- H5 (DevOps review):
+  ODOOSHADOW_REQUIRED_LABEL  default "synth-sandbox" -- H5 (DevOps review):
                          opt-in label an issue must carry before the listener
                          acts. Only a repo maintainer can add labels, so this
                          gates instance creation behind a trust boundary.
@@ -75,7 +75,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # fifty issues = fifty instances. The label also does security work (C6):
 # only a repo maintainer can add it, so the prompt author must be a
 # maintainer, not just anyone with a GitHub account. Override via env var.
-REQUIRED_LABEL = os.environ.get("ODOO_SYNTH_REQUIRED_LABEL", "synth-sandbox").strip().lower()
+REQUIRED_LABEL = os.environ.get("ODOOSHADOW_REQUIRED_LABEL", "synth-sandbox").strip().lower()
 LAUNCHER = REPO_ROOT / "scripts" / "issue_to_env.py"
 # On the Coder server the launcher's deps (boto3, pyyaml) live in a venv at
 # $REPO_ROOT/.venv (Ubuntu 24.04 PEP 668 blocks system-wide pip). Prefer it if
@@ -213,7 +213,7 @@ def webhook():
         "ISSUE_TITLE": issue.get("title") or "",
         "ISSUE_BODY": issue.get("body") or "",
         "ISSUE_URL": issue.get("html_url") or "",
-        # the addons repo the issue belongs to -> matches an odoo-synth profile
+        # the addons repo the issue belongs to -> matches an odooshadow profile
         # (and on close, scopes teardown to THIS repo's env for this issue).
         "ISSUE_REPO_URL": repo.get("clone_url") or "",
         # H5: on reopened, tell the launcher to reuse the existing workspace

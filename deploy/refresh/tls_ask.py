@@ -8,7 +8,7 @@ ahead of time -- a new one appears every time a workspace is created -- so
 Caddy has to ask at request time. Without this gate, Caddy would attempt (and
 burn Let's Encrypt's per-domain rate limit on) a certificate for ANY hostname
 a scanner points at this box. This only allows the dashboard host and the
-"<slug>--<workspace>--<owner>" app-tile pattern odoo-synth-workspacer
+"<slug>--<workspace>--<owner>" app-tile pattern odooshadow-workspacer
 actually uses, both under PUBLIC_DOMAIN.
 
 Stdlib only (no Flask/deps) -- this is a single tiny always-on check, run as

@@ -3,7 +3,7 @@
 Reference for the infra/DevOps team: every AWS resource this repo's deploy
 scripts (`deploy/*.sh`) and Coder templates (`coder/templates/*/main.tf`)
 create, in one place. Resource names below use `<project>` as a placeholder
-for the `PROJECT` value in `config.yaml` (e.g. `odoosynth-multi`).
+for the `PROJECT` value in `config.yaml` (e.g. `odooshadow-multi`).
 
 No VPC, subnet, NAT gateway, or internet gateway is created — everything
 launches into the AWS account's **existing default VPC** and one of its
@@ -76,7 +76,7 @@ installed per-profile at workspace boot, not baked into the AMI).
 
 **`<project>-builder-instance` grants:** S3 read/write on the whole dumps
 bucket, Secrets Manager read (same paths), ECR push/pull on `<project>/*`,
-and `ec2:TerminateInstances` scoped to `odoo-synth:managed=true`-tagged
+and `ec2:TerminateInstances` scoped to `odooshadow:managed=true`-tagged
 instances (used for the builder's own self-terminate).
 
 ---
@@ -90,10 +90,10 @@ them.
 
 | Template | Purpose | Default instance type | IAM profile | Lifetime |
 |---|---|---|---|---|
-| `odoo-synth-workspacer` | The actual developer workspace (Odoo + all multi-repo components) | `t3.large` | `<project>-env-instance` | Persistent — runs until the developer/Coder stops or deletes it |
-| `odoo-synth-builder` | Builds the per-profile Odoo image, pushes to ECR | `m5.xlarge` | `<project>-builder-instance` | Transient — self-terminates when the build finishes |
-| `odoo-synth-discoverer` | Scans the source DB schema, proposes a masking plan | `m5.large` | `<project>-env-instance` | Transient — self-terminates when discovery finishes |
-| `odoo-synth-masker` | Runs greenmask, produces the masked dump | `m5.large` | `<project>-env-instance` | Transient — self-terminates when the mask run finishes |
+| `odooshadow-workspacer` | The actual developer workspace (Odoo + all multi-repo components) | `t3.large` | `<project>-env-instance` | Persistent — runs until the developer/Coder stops or deletes it |
+| `odooshadow-builder` | Builds the per-profile Odoo image, pushes to ECR | `m5.xlarge` | `<project>-builder-instance` | Transient — self-terminates when the build finishes |
+| `odooshadow-discoverer` | Scans the source DB schema, proposes a masking plan | `m5.large` | `<project>-env-instance` | Transient — self-terminates when discovery finishes |
+| `odooshadow-masker` | Runs greenmask, produces the masked dump | `m5.large` | `<project>-env-instance` | Transient — self-terminates when the mask run finishes |
 
 All four use the same `<project>-env-sg` (egress-only) and the same golden
 AMI (~30GB gp3 root volume, inherited from the AMI). Every instance type
@@ -111,7 +111,7 @@ containers share the instance's full capacity (default `t3.large` = 2 vCPU /
 
 | Component | Runs as | Image / runtime | Approx. size | Notes |
 |---|---|---|---|---|
-| Odoo | Docker container (`env-odoo`) | `<project>/odoo:<profile>-<hash>` — custom-built per profile from the pinned Odoo git ref + custom addons | Varies per profile/addon set (not fixed) | Built by `odoo-synth-builder`, pushed to ECR |
+| Odoo | Docker container (`env-odoo`) | `<project>/odoo:<profile>-<hash>` — custom-built per profile from the pinned Odoo git ref + custom addons | Varies per profile/addon set (not fixed) | Built by `odooshadow-builder`, pushed to ECR |
 | Postgres | Docker container (`env-db`) | `postgres:16` (official image) | ~400MB | Odoo's database; seeded from the masked dump |
 | Redis | Docker container (`dep-redis`) | `redis:7-alpine` (official image) | ~40MB | Current profile config; dependency kind is config-driven, not fixed |
 | facade | Docker container | `<project>/facade:<profile>-<hash>` — built from that repo's own `Dockerfile` | Varies (not fixed) | `uvicorn`-served Python app |
@@ -163,12 +163,12 @@ this moves to a real domain (Cloudflare or otherwise).
 
 ## Resource-tag conventions
 
-Everything this repo creates in EC2 is tagged `odoo-synth:managed=true`
-(the Coder server additionally gets `odoo-synth:control-plane=true`) — a
+Everything this repo creates in EC2 is tagged `odooshadow:managed=true`
+(the Coder server additionally gets `odooshadow:control-plane=true`) — a
 useful filter for a cost/cleanup audit:
 
 ```bash
-aws ec2 describe-instances --filters "Name=tag:odoo-synth:managed,Values=true"
-aws ec2 describe-images --owners self --filters "Name=tag:odoo-synth:managed,Values=true"
-aws ec2 describe-addresses --filters "Name=tag:odoo-synth:managed,Values=true"
+aws ec2 describe-instances --filters "Name=tag:odooshadow:managed,Values=true"
+aws ec2 describe-images --owners self --filters "Name=tag:odooshadow:managed,Values=true"
+aws ec2 describe-addresses --filters "Name=tag:odooshadow:managed,Values=true"
 ```
