@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Thin launcher for the odoo-synth CLI.
+"""Thin launcher for the odooshadow CLI.
 
 The real implementation lives in the importable ``cli`` package
 (``cli/__init__.py``) so it can also be exposed as a setuptools console
-script (``odoo-synth = cli:main``) via ``pip install -e .``. This file keeps
-the historical ``./cli/odoo-synth`` invocation path and the symlink target
+script (``odooshadow = cli:main``) via ``pip install -e .``. This file keeps
+the historical ``./cli/odooshadow`` invocation path and the symlink target
 used by ``deploy/00_install_prereqs.sh`` working unchanged.
 """
 from __future__ import annotations

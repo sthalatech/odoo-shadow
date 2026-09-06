@@ -22,9 +22,12 @@ if is_true "$SSH_ENABLED"; then
   KEY=/tmp/ssh_key
   printf '%b\n' "$SSH_PRIVATE_KEY" | sed 's/\\n/\n/g' > "$KEY"
   chmod 600 "$KEY"
+  # M1 (Pass-2 review): accept-new + persistent known_hosts (see masker/entrypoint.sh)
+  export SSH_KNOWN_HOSTS=/tmp/ssh_known_hosts
+  touch "$SSH_KNOWN_HOSTS"; chmod 600 "$SSH_KNOWN_HOSTS"
   say "opening SSH tunnel: localhost:${SSH_LOCAL_PORT} -> ${REMOTE_HOST}:${REMOTE_PORT} via ${SSH_BASTION_USER}@${SSH_BASTION_HOST}:${SSH_BASTION_PORT} ..."
   if ! ssh -f -N \
-        -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$SSH_KNOWN_HOSTS" \
         -o ExitOnForwardFailure=yes -o ConnectTimeout=15 \
         -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
         -i "$KEY" -p "$SSH_BASTION_PORT" \

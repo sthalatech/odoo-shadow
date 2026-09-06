@@ -68,7 +68,7 @@ confirm(){  # question  -> 0=yes 1=no  (default no)
 }
 have(){ command -v "$1" >/dev/null 2>&1; }
 
-say "${BOLD}odoo-synth guided setup${OFF}"
+say "${BOLD}odooshadow guided setup${OFF}"
 note "This walks you through a first-time install: prerequisites, AWS auth,"
 note "config.yaml, secrets, and a smoke test. Re-run anytime; existing config"
 note "is kept unless you choose to overwrite."
@@ -76,15 +76,15 @@ note "is kept unless you choose to overwrite."
 # ===========================================================================
 # 1. PREREQUISITES
 # ===========================================================================
-step 1/7 "Install prerequisites (AWS CLI, python deps, Coder CLI, odoo-synth on PATH)"
+step 1/7 "Install prerequisites (AWS CLI, python deps, Coder CLI, odooshadow on PATH)"
 if confirm "Run deploy/00_install_prereqs.sh now?"; then
   bash deploy/00_install_prereqs.sh --quiet
 else
-  warn "skipped -- make sure aws, python3, coder, and odoo-synth are on PATH."
+  warn "skipped -- make sure aws, python3, coder, and odooshadow are on PATH."
 fi
 have aws     || die "aws CLI missing -- run deploy/00_install_prereqs.sh"
 have python3 || die "python3 missing -- run deploy/00_install_prereqs.sh"
-have odoo-synth || die "odoo-synth not on PATH -- run deploy/00_install_prereqs.sh"
+have odooshadow || die "odooshadow not on PATH -- run deploy/00_install_prereqs.sh"
 ok "prerequisites present"
 
 # ===========================================================================
@@ -211,7 +211,7 @@ echo "  ${DIM}Press Enter to accept the [default].${OFF}"
 echo
 
 REGION="$(prompt_default "AWS region" "$REGION_DEFAULT")"
-PROJECT="$(prompt_default "Project name (AWS resources are named <project>-*)" "odoo-synth")"
+PROJECT="$(prompt_default "Project name (AWS resources are named <project>-*)" "odooshadow")"
 
 echo
 say "S3 bucket for masked dumps"
@@ -263,7 +263,7 @@ EXAMPLE="$HERE/config.example.yaml"
 # Only the basic-infra values are filled here. The Odoo core git_ref +
 # custom addons repo are profile-level concerns (tied to a specific source DB),
 # so they're blanked here and set per-profile via
-# `odoo-synth profile create --odoo-git-ref ... --addons-git-url ...`.
+# `odooshadow profile create --odoo-git-ref ... --addons-git-url ...`.
 python3 - "$EXAMPLE" "$CFG" "$REGION" "$PROJECT" "$BUCKET" <<'PY'
 import sys, re
 ex, out, region, project, bucket = sys.argv[1:6]
@@ -309,9 +309,9 @@ fi
 
 echo
 say "CLI smoke test:"
-odoo-synth --help >/dev/null 2>&1 && ok "odoo-synth --help" || die "odoo-synth --help failed"
-odoo-synth config  >/dev/null 2>&1 && ok "odoo-synth config"  || warn "odoo-synth config emitted warnings"
-odoo-synth profile list >/dev/null 2>&1 && ok "odoo-synth profile list" || warn "profile list had issues"
+odooshadow --help >/dev/null 2>&1 && ok "odooshadow --help" || die "odooshadow --help failed"
+odooshadow config  >/dev/null 2>&1 && ok "odooshadow config"  || warn "odooshadow config emitted warnings"
+odooshadow profile list >/dev/null 2>&1 && ok "odooshadow profile list" || warn "profile list had issues"
 
 # ===========================================================================
 # 7. PROVISION BASIC INFRASTRUCTURE
@@ -397,7 +397,7 @@ else
 
     # --- 7d. Publish the Coder templates (needs coder login) ---
     # This MUST run -- profile discover/build/mask shell out to `coder create
-    # -t odoo-synth-discoverer` / `-t odoo-synth-masker` / `-t odoo-synth-builder`,
+    # -t odooshadow-discoverer` / `-t odooshadow-masker` / `-t odooshadow-builder`,
     # which 404 with "template not found" if that template was never published.
     # Never silently skip: if login produced no token, tell the operator
     # explicitly (and how to recover) instead of dropping the step.
@@ -407,13 +407,13 @@ else
       if [ -z "${CODER_SESSION_TOKEN:-}" ]; then
         warn "CODER_SESSION_TOKEN is not set -- coder login did not persist a token."
         warn "The workspacer/builder/discoverer/masker templates will NOT be"
-        warn "published, so 'odoo-synth profile discover/build/mask' and"
-        warn "'odoo-synth workspace create' will fail with 'template not found' until"
+        warn "published, so 'odooshadow profile discover/build/mask' and"
+        warn "'odooshadow workspace create' will fail with 'template not found' until"
         warn "you publish them. To fix:"
         warn "    coder login $CODER_URL   ${DIM}# or set CODER_SESSION_TOKEN in deploy/state.env${OFF}"
         warn "    bash deploy/12_publish_template.sh"
       elif bash deploy/12_publish_template.sh --quiet; then
-        ok "Coder templates published (odoo-synth-workspacer, odoo-synth-builder, odoo-synth-discoverer, odoo-synth-masker)"
+        ok "Coder templates published (odooshadow-workspacer, odooshadow-builder, odooshadow-discoverer, odooshadow-masker)"
         PROVISIONED=1
       else
         warn "template publish failed (see above). Run 'coder login $CODER_URL' then"
@@ -439,14 +439,14 @@ if [ "$PROVISIONED" = 0 ] && [ -n "${CODER_URL:-}" ]; then PROVISIONED=1; fi
 cat <<NEXT
 
 ${BOLD}Basic infra:${OFF} $([ "$PROVISIONED" = 1 ] && echo "${GREEN}provisioned${OFF}" || echo "${YELLOW}not yet provisioned${OFF}").
-The rest is on-demand via the odoo-synth CLI -- one profile per source Odoo DB,
+The rest is on-demand via the odooshadow CLI -- one profile per source Odoo DB,
 then mask + launch dev environments from it.
 
 ${BOLD}1. Create a profile${OFF} (binds a source Odoo DB + its addons repo):
-    odoo-synth profile create --label 'my-profile'
+    odooshadow profile create --label 'my-profile'
         --source-dsn 'postgresql://user:pass@host:5432/db'
         --odoo-series 17.0 --addons-git-url <url> --addons-git-ref <ref>
-    odoo-synth profile list
+    odooshadow profile list
 
 ${BOLD}2. Set DB/Odoo passwords${OFF} before your first mask/env run. Create
    ${DIM}deploy/secrets.env${OFF} (gitignored; auto-loaded by the CLI):
@@ -457,10 +457,10 @@ ${BOLD}2. Set DB/Odoo passwords${OFF} before your first mask/env run. Create
    create\`/\`update\`, not a secrets.env var)
 
 ${BOLD}3. Mask${OFF} the source DB -> masked pg_dump in S3:
-    odoo-synth profile mask <id> ...
+    odooshadow profile mask <id> ...
 
 ${BOLD}4. Launch a dev workspace${OFF} (one Coder workspace per GitHub issue):
-    odoo-synth workspace create --profile-id <id> --issue <num> --repo-url <url>
+    odooshadow workspace create --profile-id <id> --issue <num> --repo-url <url>
 
 Re-run ${BOLD}bash deploy/00_setup.sh${OFF} anytime to reconfigure or re-provision.
 NEXT

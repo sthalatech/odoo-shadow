@@ -71,7 +71,7 @@ def render_caddyfile(hook_ips: str) -> str:
 		on_demand
 	}}
 
-	# GitHub webhook -> odoo-synth listener (localhost only, if/when deployed).
+	# GitHub webhook -> odooshadow listener (localhost only, if/when deployed).
 	# Restricted to GitHub's hook IP ranges (auto-refreshed by this script);
 	# everyone else gets 403. The listener additionally verifies the HMAC
 	# signature + dedupes by X-GitHub-Delivery.

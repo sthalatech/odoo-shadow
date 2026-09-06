@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>odoo-synth — DevOps Review: Inline Response</title>
+<style>
+:root { color-scheme: light dark; }
+body { font: 15px/1.6 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+       max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; background: #fff; }
+h1 { font-size: 1.45rem; margin-bottom: .2rem; }
+h2 { font-size: 1.12rem; margin-top: 2.4rem; padding-bottom: .3rem; border-bottom: 1px solid #ddd; }
+h3 { font-size: .98rem; margin: 1.6rem 0 .4rem; }
+.meta { color: #666; font-size: .85rem; margin-bottom: 1.2rem; }
+code { background: rgba(130,130,130,.15); padding: .1em .35em; border-radius: 3px; font-size: .85em; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .9rem; }
+th, td { border: 1px solid #ddd; padding: .45rem .6rem; text-align: left; vertical-align: top; }
+th { background: #f2f2f2; }
+.note { background: #eef4fb; border-left: 4px solid #3b7dbf; padding: .7rem .9rem; border-radius: 4px; margin: 1.1rem 0; }
+.good { background: #edf7ee; border-left: 4px solid #2e7d32; padding: .7rem .9rem; border-radius: 4px; margin: 1.1rem 0; }
+.finding { border: 1px solid #ddd; border-radius: 5px; padding: .1rem 1rem .8rem; margin: 1.1rem 0; }
+.finding.crit { border-left: 5px solid #c0392b; }
+.finding.high { border-left: 5px solid #e07b00; }
+.tag { display: inline-block; font-size: .7rem; font-weight: 700; letter-spacing: .04em;
+       padding: .12rem .45rem; border-radius: 3px; vertical-align: middle; margin-right: .5rem; }
+.tag.crit { background: #c0392b; color: #fff; }
+.tag.high { background: #e07b00; color: #fff; }
+.effort { float: right; font-size: .74rem; color: #555; background: rgba(130,130,130,.13);
+          padding: .18rem .5rem; border-radius: 10px; font-weight: 600; }
+.ev { font-size: .82rem; color: #555; margin: .35rem 0 .6rem; }
+.fix { background: rgba(130,130,130,.08); border-radius: 4px; padding: .55rem .8rem; margin-top: .6rem; font-size: .92rem; }
+.fix strong { font-size: .8rem; letter-spacing: .03em; text-transform: uppercase; color: #444; display:block; margin-bottom:.25rem;}
+ul, ol { padding-left: 1.3rem; }
+li { margin: .25rem 0; }
+.q { border-left: 3px solid #999; padding-left: .9rem; margin: .9rem 0; }
+/* response block */
+.response { background: #e8f5e9; border-left: 4px solid #2e7d32; padding: .7rem .95rem; border-radius: 4px; margin: 1rem 0 .4rem; }
+.response .res-header { font-size: .78rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #2e7d32; margin-bottom: .35rem; }
+.response p { margin: .4rem 0; }
+.response code { background: rgba(46,125,50,.13); }
+.response .future { background: #fff8e1; border-left: 3px solid #e0a300; padding: .5rem .7rem; border-radius: 3px; margin: .5rem 0; font-size: .88rem; }
+.response .commit { font-size: .82rem; color: #555; margin-top: .5rem; }
+.review-quote { color: #555; font-style: italic; }
+@media (prefers-color-scheme: dark) {
+  body { background: #16181c; color: #e6e6e6; }
+  .meta, .ev { color: #9aa0a6; }
+  h2 { border-bottom-color: #333; }
+  th { background: #24272e; }
+  td, th { border-color: #333; }
+  .finding { border-color: #333; }
+  .note { background: #131f2b; }
+  .good { background: #14251a; }
+  .response { background: #0e1f12; border-left-color: #4a9d5a; }
+  .response .res-header { color: #4a9d5a; }
+  .response code { background: rgba(74,157,90,.2); }
+  .response .future { background: #2a2410; border-left-color: #e0a300; }
+  .review-quote { color: #9aa0a6; }
+}
+</style>
+</head>
+<body>
+
+<h1>odoo-synth — DevOps Review: Inline Response</h1>
+<div class="meta">
+  Branch: <code>devops-hardening</code> (off <code>sketch-wip</code> @ <code>7a960e6</code>) ·<br>
+  Review date: 2026-08-09 · Response date: 2026-08-14<br>
+  8 findings addressed (C4, C5, H2, H5, C1, C2, C3, H1) · 20 files changed, +520/-70 lines<br>
+  <b>Green blocks are our responses, inline after each finding.</b>
+</div>
+
+<div class="note">
+<b>How to read this document.</b> Each section from the original review is reproduced
+(italicized where quoted), followed immediately by our response in a green box.
+The response states what was done, what files changed, the commit hash, and
+any caveats or future work.
+</div>
+
+<!-- ================================================================ -->
+<h2>What's already right</h2>
+
+<p class="review-quote">
+The review listed seven things the codebase already gets right (SHA-256 pinned
+Greenmask, HMAC webhook with replay dedupe, FK-closure exclude logic, the
+rulebook's PII mapping, refusing NER as default, managed-tag convention,
+clean .gitignore) plus the validated IRS multi-repo component model.
+</p>
+
+<div class="response">
+<div class="res-header">Response</div>
+<p>Acknowledged — no action needed on any of these. The review's positive
+assessments are accurate.</p>
+</div>
+
+<!-- ================================================================ -->
+<h2>Assumptions I'd like you to check</h2>
+
+<p class="review-quote">The review listed five assumptions and asked us to verify each against the codebase.</p>
+
+<h3>Assumption 1 — Is the IRS component set current?</h3>
+<div class="response">
+<div class="res-header">Response</div>
+<p><b>Yes — confirmed current.</b> <code>examples/multi-repo/components.yaml</code>
+is the validated 5-repo IRS wiring: <code>prs-backend</code> (Odoo),
+<code>prs-facade</code>, <code>prs-worker</code>, <code>prs-frontend</code>,
+<code>irs-admin-frontend</code>. The file header says "Real 5-repo setup
+validated during multi-repo design."</p>
+<p>The most recent change to this file (commit <code>409b676</code>) was an
+explicit drift fix to keep the example in sync with the live profile after
+<code>facade.expose.path</code> was reverted. The commit message notes that
+"a fresh <code>profile create</code> from this file is supposed to reproduce
+the validated, working configuration exactly." No action needed.</p>
+</div>
+
+<h3>Assumption 2 — Is there a compiler step for the rulebook?</h3>
+<div class="response">
+<div class="res-header">Response</div>
+<p><b>No — confirmed absent.</b> Nothing in the codebase reads
+<code>masker/rules/*.yml</code> as an input. <code>masker/entrypoint.sh</code>
+loads only <code>profiles/&lt;MASK_PROFILE&gt;.yml</code> (baked or downloaded
+via <code>MASK_RULES_URL</code>). <code>discovery/gen_masking.py</code> generates
+greenmask profiles from schema introspection, not from the rulebook.</p>
+<p>The C1 fix documents this explicitly in <code>masker/rules/README.md</code>:
+the rulebook is a specification ahead of implementation, not enforced policy.</p>
+</div>
+
+<h3>Assumption 3 — Does the workspacer need the <code>profile/*</code> Secrets Manager grant?</h3>
+<div class="response">
+<div class="res-header">Response</div>
+<p><b>No — confirmed unnecessary.</b> The workspacer's <code>startup_script</code>
+only reads the masked dump from S3 (<code>aws s3 cp "$DUMP_S3_URI"</code>) and
+pulls the Odoo ECR image — both of which need only S3 read + ECR pull, not
+<code>profile/*</code> (source DB password / bastion SSH key).</p>
+<p>The <code>profile/*</code> secrets are only needed by the masker and
+discoverer, which connect to the source DB. The C4 fix formalizes this: the
+workspacer defaults to <code>env-instance</code> (no <code>profile/*</code>),
+and the masker/discoverer default to the new <code>runner-instance</code> role
+(with <code>profile/*</code>).</p>
+</div>
+
+<h3>Assumption 4 — What does <code>SOURCE_DB_HOST</code> point at?</h3>
+<div class="response">
+<div class="res-header">Response</div>
+<p><b>During the POC: a snapshot restored to a temporary RDS instance, never
+the production primary.</b> The masker's source-DB access is read-only in
+practice (<code>pg_dump</code> + greenmask extraction only — no
+<code>UPDATE</code>/<code>INSERT</code>/DDL against the source), but the code
+does not enforce this: it connects with whatever credentials are provided, and
+there is no <code>SET TRANSACTION READ ONLY</code> guard or warning if the host
+looks like a production endpoint.</p>
+<div class="future">
+<b>Future hardening item (not in this branch).</b> Add a
+<code>SET TRANSACTION READ ONLY</code> guard in the masker's preflight, or
+require a dedicated read-only DB user, so the system enforces what is currently
+only operational practice. The review asked a question here, not for a code
+change — but for the pilot, the source DSN provided to
+<code>odoo-synth profile create</code> <b>must</b> point at a snapshot/temporary
+instance, not the production primary.
+</div>
+</div>
+
+<h3>Assumption 5 — Cost figures (ap-south-1, ~10 concurrent sandboxes)?</h3>
+<div class="response">
+<div class="res-header">Response</div>
+<p><b>Region:</b> the deploy scripts default to the AWS CLI's configured region
+(<code>deploy/00_setup.sh:148</code> falls back to <code>us-east-1</code> if
+none is set). The review's <code>ap-south-1</code> assumption is an operator
+choice, not a code default — the region is prompted during
+<code>deploy/00_setup.sh</code> and stored in <code>~/.aws/config</code>. For
+the pilot, the operator should set <code>ap-south-1</code> if that's where the
+source DB and sandboxes will live.</p>
+<p><b>Concurrency:</b> the H2 concurrency cap defaults to 10
+(<code>ODOO_SYNTH_MAX_CONCURRENT</code>, <code>scripts/issue_to_env.py:335</code>),
+matching the review's assumption of ~10 concurrent sandboxes. This is
+configurable if the pilot needs more or fewer.</p>
+</div>
+
+<!-- ================================================================ -->
+<h2>Quick wins — small changes, large blast-radius reduction</h2>
+
+<!-- C4 -->
+<div class="finding crit">
+<span class="tag crit">CRITICAL</span><span class="effort">~2–4 hours</span>
+<h3>C4 — Dev sandboxes can read production DB credentials</h3>
+<p class="review-quote">
+workspacer/main.tf:270 defaults every developer workspace to the
+odoo-synth-env-instance profile, and that role (deploy/09_dev_env.sh) grants
+secretsmanager:GetSecretValue on &lt;project&gt;/profile/* — where profiles.py
+stores the production source-DB password and the bastion SSH key. So one IAM
+role is shared between the masker (which legitimately needs source credentials)
+and the developer sandbox (which shouldn't have them).
+</p>
+<p class="ev"><code>deploy/09_dev_env.sh</code> (EnvSecrets), <code>coder/templates/odoo-synth-workspacer/main.tf:270</code>, <code>lib/backend/profiles.py</code></p>
+<div class="fix"><strong>Suggested change (review)</strong>
+Split the role: -env-instance (dev workspaces) keeps S3 masked-dump read + ECR pull and drops
+profile/* — at most it keeps &lt;project&gt;/env/&lt;own-env-id&gt;/*. Add
+-runner-instance for masker/discoverer, which keeps profile/*. Then set the
+instance_profile default per template rather than sharing one.</div>
+
+<div class="response">
+<div class="res-header">Response — Done as suggested</div>
+<p>Split the shared <code>env-instance</code> role into two in
+<code>deploy/09_dev_env.sh</code>:</p>
+<ul>
+<li><code>env-instance</code> (dev workspaces): S3 masked-dump read + ECR pull
+  + own <code>env/*</code> secrets. <b>No <code>profile/*</code> access.</b></li>
+<li><code>runner-instance</code> (masker/discoverer): same + <code>profile/*</code>
+  (source creds — DB password, bastion SSH key).</li>
+</ul>
+<p>Updated the masker and discoverer Coder templates to default to
+<code>runner-instance</code>. The workspacer template stays on
+<code>env-instance</code>. Updated <code>deploy/11_coder_server.sh</code> to
+include the runner role ARN in the <code>iam:PassRole</code> list so the Coder
+server can launch masker/discoverer workspaces. Added
+<code>RUNNER_INSTANCE_PROFILE</code> to <code>deploy/state.env.example</code>.</p>
+<p class="commit">Commit: <code>fc2ca47</code> · Files: <code>deploy/09_dev_env.sh</code>, <code>deploy/11_coder_server.sh</code>, <code>deploy/state.env.example</code>, <code>coder/templates/odoo-synth-workspacer/main.tf</code>, <code>coder/templates/odoo-synth-masker/main.tf</code>, <code>coder/templates/odoo-synth-discoverer/main.tf</code></p>
+</div>
+</div>
+
+<!-- C5 -->
+<div class="finding crit">
+<span class="tag crit">CRITICAL</span><span class="effort">~1–2 hours</span>
+<h3>C5 — Any workspace can terminate the control plane</h3>
+<p class="review-quote">
+The builder's self-terminate grant is ec2:TerminateInstances on Resource: "*"
+conditioned on aws:ResourceTag/odoo-synth:managed = "true". But
+11_coder_server.sh:280 tags the Coder server with exactly that — so the
+condition intended to scope the permission to the builder's own instance also
+matches the control plane and every other workspace. Because Coder's bundled
+Postgres holds all profile/run/workspace state on that box, this is
+unrecoverable state loss, not just downtime.
+</p>
+<p class="ev"><code>deploy/10_builder.sh</code> (SelfTerminate), <code>deploy/11_coder_server.sh:280</code></p>
+<div class="fix"><strong>Suggested change (review)</strong>
+Add a narrower tag — odoo-synth:role=builder, applied only by the builder template — and
+condition on that. Belt-and-braces: an explicit Deny when
+aws:ResourceTag/odoo-synth:control-plane = "true". Cleanest of all would be a Coder
+shutdown_script so the IAM grant isn't needed at all.</div>
+
+<div class="response">
+<div class="res-header">Response — Done (belt-and-braces, as suggested)</div>
+<p>Narrowed the <code>SelfTerminate</code> Allow condition from
+<code>aws:ResourceTag/odoo-synth:managed = "true"</code> to
+<code>aws:ResourceTag/odoo-synth:role = "builder"</code>.</p>
+<p>Added an explicit <code>Deny</code> on
+<code>aws:ResourceTag/odoo-synth:control-plane = "true"</code> as the
+belt-and-braces the review suggested. The Coder server already carries that tag
+from <code>deploy/11_coder_server.sh</code>.</p>
+<p>Added the <code>odoo-synth:role=builder</code> tag to the builder template's
+<code>aws_instance</code> resource so the narrowed Allow condition matches.</p>
+<p class="commit">Commit: <code>f862ff4</code> · Files: <code>deploy/10_builder.sh</code>, <code>coder/templates/odoo-synth-builder/main.tf</code></p>
+</div>
+</div>
+
+<!-- H2 -->
+<div class="finding high">
+<span class="tag high">HIGH</span><span class="effort">~2–3 hours</span>
+<h3>H2 — No TTL, autostop or quota anywhere</h3>
+<p class="review-quote">
+No ttl, autostop, max_deadline or inactivity setting in any of the four
+templates. The workspacer is persistent by design and its only teardown trigger
+is the GitHub issue closing — so an issue left open is a t3.large running
+indefinitely, with no cap on how many can exist at once.
+</p>
+<div class="fix"><strong>Suggested change (review)</strong>
+Inactivity shutdown + an 8h TTL on the workspacer, and a concurrency cap checked in
+issue_to_env.py before coder create. DevOps will add a nightly reaper on the
+odoo-synth:managed tag and a budget alarm.</div>
+
+<div class="response">
+<div class="res-header">Response — Done</div>
+<p><b>Shutdown script:</b> Added a <code>shutdown_script</code> to
+<code>coder_agent.main</code> in the workspacer template — gracefully stops Odoo
+containers + powers off the EC2 instance on Coder's inactivity autostop. This is
+the mechanism the review flagged as "cleanest of all" in C5 (a Coder-driven
+shutdown rather than IAM-terminated).</p>
+<p><b>8h TTL:</b> <code>deploy/12_publish_template.sh</code> now sets
+<code>--default-ttl 8h</code> on the workspacer template after push (8h = full
+workday; user can extend via the Coder dashboard). The <code>push</code> command
+doesn't support TTL flags in Coder v2.34.6, so this is a separate
+<code>coder templates edit</code> call.</p>
+<p><b>Concurrency cap:</b> <code>scripts/issue_to_env.py</code> now checks a
+concurrency cap before <code>coder create</code> — refuses to launch when active
+workspace count ≥ <code>ODOO_SYNTH_MAX_CONCURRENT</code> (default 10). New exit
+code 6 so the webhook listener can distinguish "cap reached" from other errors.</p>
+<p class="commit">Commit: <code>46cdf20</code> · Files: <code>coder/templates/odoo-synth-workspacer/main.tf</code>, <code>deploy/12_publish_template.sh</code>, <code>scripts/issue_to_env.py</code></p>
+</div>
+</div>
+
+<!-- H5 -->
+<div class="finding high">
+<span class="tag high">HIGH</span><span class="effort">~half day</span>
+<h3>H5 — Webhook creates instances with no gate</h3>
+<p class="review-quote">
+Every issue.opened and issue.reopened launches an EC2 instance. The delivery-ID
+dedupe correctly stops replay of the same event, but not volume — fifty issues
+create fifty instances.
+</p>
+<div class="fix"><strong>Suggested change (review)</strong>
+Require an opt-in label (e.g. synth-sandbox) before the listener acts. This also does real
+security work — see C6 — because it makes the prompt author a repo maintainer rather than anyone
+with a GitHub account. Reuse the existing workspace on reopened instead of creating a second.</div>
+
+<div class="response">
+<div class="res-header">Response — Done as suggested</div>
+<p><b>Label gate:</b> <code>scripts/webhook_listener.py</code> now requires the
+<code>synth-sandbox</code> label (configurable via <code>ODOO_SYNTH_REQUIRED_LABEL</code>)
+on <code>opened</code>/<code>reopened</code> before acting. Only a repo maintainer
+can add labels, so this gates instance creation behind a trust boundary.
+<code>closed</code> events don't need the label (teardown is always safe).</p>
+<p><b>Reuse on reopened:</b> <code>scripts/issue_to_env.py</code> on
+<code>reopened</code> now reuses the existing live workspace for that issue (if
+any) instead of creating a second one.</p>
+<p>Updated <code>scripts/README.md</code> with the label gate + reuse behavior.</p>
+<p class="commit">Commit: <code>6c52755</code> · Files: <code>scripts/webhook_listener.py</code>, <code>scripts/issue_to_env.py</code>, <code>scripts/README.md</code></p>
+</div>
+</div>
+
+<!-- ================================================================ -->
+<h2>The masking pipeline — the substantial work</h2>
+
+<!-- C1 -->
+<div class="finding crit">
+<span class="tag crit">CRITICAL</span><span class="effort">~1 hr interim / 1–2 wks proper</span>
+<h3>C1 — The rulebook isn't wired to the engine</h3>
+<p class="review-quote">
+masker/rules/*.yml is 804 lines of well-reasoned policy that nothing reads.
+Dockerfile:36 copies it into the image, but entrypoint.sh:92-104 only loads
+/work/profiles/&lt;MASK_PROFILE&gt;.yml or the discovery-generated profile from
+MASK_RULES_URL. The baked default (profiles/odoo-core-pii.yml) covers 3 tables,
+12 columns — and notably doesn't mask res_partner.mobile, email_normalized or
+phone_sanitized, which is the exact cache-field leak 10_core.yml documents as
+having been found in the v0.1.0 run.
+</p>
+<div class="fix"><strong>Suggested change (review)</strong>
+Long-term: make rules/*.yml the compiled input. Short-term, so nobody reviews
+policy that isn't enforced: drop rules/ from the image and note in the README
+that it's a specification ahead of implementation. Either is fine; the current
+state is the problem because it reads as enforced.</div>
+
+<div class="response">
+<div class="res-header">Response — Done (short-term fix, as suggested)</div>
+<p>Implemented the review's short-term option:</p>
+<ul>
+<li><b><code>masker/Dockerfile</code></b>: stopped <code>COPY</code>ing
+  <code>rules/</code> into the image. The rulebook no longer ships in the
+  container, so there's nothing that reads as "enforced" when it isn't.</li>
+<li><b><code>masker/rules/README.md</code></b>: added a prominent status note
+  that the rulebook is a <b>specification ahead of implementation</b>, not
+  enforced policy. Anyone reading the README now knows the rules aren't wired
+  to the engine yet.</li>
+<li><b><code>masker/profiles/odoo-core-pii.yml</code></b>: fixed the baked
+  default to mask the cache-field leaks the review identified —
+  <code>res_partner.mobile</code>, <code>email_normalized</code>,
+  <code>phone_sanitized</code>. These are the exact fields missing from the
+  profile that <code>10_core.yml</code> documents as having been found leaking
+  in the v0.1.0 run.</li>
+</ul>
+<div class="future">
+<b>Long-term fix (not in this branch):</b> a compiler step that reads
+<code>rules/*.yml</code> + live schema and emits the greenmask
+<code>dump.transformation</code> list, replacing hand-maintained profiles as
+the default path. Tracked as future work.
+</div>
+<p class="commit">Commit: <code>4320ef6</code> · Files: <code>masker/Dockerfile</code>, <code>masker/rules/README.md</code>, <code>masker/profiles/odoo-core-pii.yml</code></p>
+</div>
+</div>
+
+<!-- C2 -->
+<div class="finding crit">
+<span class="tag crit">CRITICAL</span><span class="effort">~1 day</span>
+<h3>C2 — Neutralize doesn't cover what the generator skips</h3>
+<p class="review-quote">
+gen_masking.py excludes the credential tables from masking on the documented
+basis that they're "neutralized by the masker". The neutralize block covers
+some of them correctly (ir_mail_server, fetchmail_server, ir_cron), but leaves
+critical credential tables partially or fully unscrubbed: ir_config_parameter
+(only mail.force.smtp.from zeroed), payment_provider (values intact),
+res_users (only admin password reset), res_users_apikeys + auth_totp_device
+(nothing).
+</p>
+<p class="review-quote">
+Worth saying: rules/60_system_secrets.yml gets every one of these right,
+including why database.secret needs rotating rather than dropping. The policy
+exists; it's the execution that's missing. One knock-on: the agent system
+prompt tells the AI "all PII is fake — safe to mutate freely."
+</p>
+<div class="fix"><strong>Suggested change (review)</strong>
+Extend the neutralize SQL: delete ir_config_parameter rows matching the secret/token/key
+regex already written in 60_system_secrets.yml, then regenerate database.secret
+and database.uuid fresh; null provider credential columns on payment_provider;
+blanket-scrub res_users.password and totp_secret across all rows before setting
+the admin password; truncate res_users_apikeys and auth_totp_device.</div>
+
+<div class="response">
+<div class="res-header">Response — Done as suggested</div>
+<p>Added a new <code>NEUTRALIZE_SECRETS</code> toggle (on by default) in
+<code>masker/entrypoint.sh</code> that:</p>
+<ul>
+<li>Deletes <code>ir_config_parameter</code> rows matching the secret/token/key
+  regex from <code>60_system_secrets.yml</code>, then regenerates
+  <code>database.secret</code> and <code>database.uuid</code> fresh (rotated, not
+  dropped — exactly as the rulebook specifies).</li>
+<li>Nulls credential columns on <code>payment_provider</code> (dynamically
+  discovered by column name pattern, so it survives schema changes across Odoo
+  versions).</li>
+<li>Scrubs <code>res_users.password</code> + <code>totp_secret</code> across
+  <b>all</b> rows <b>before</b> the admin password is set (step 6 now sets the
+  admin hash after this scrub, so only the admin has a usable password).</li>
+<li>Truncates <code>res_users_apikeys</code> + <code>auth_totp_device</code>.</li>
+</ul>
+<p><b>Agent prompt fix:</b> Removed the "all PII is fake — safe to mutate freely"
+claim from <code>agent-system-prompt.md</code>. An autonomous agent acting on that
+assurance is a different risk from a human reading it, as the review noted.</p>
+<p>Wired through the pipeline: <code>lib/backend/pipeline.py</code> passes
+<code>NEUTRALIZE_SECRETS</code> to the masker env; <code>cli/__init__.py</code>
+adds <code>--neutralize-secrets</code>/<code>--no-neutralize-secrets</code> flags.</p>
+<p class="commit">Commit: <code>54f2458</code> · Files: <code>masker/entrypoint.sh</code>, <code>lib/backend/pipeline.py</code>, <code>cli/__init__.py</code>, <code>coder/templates/odoo-synth-workspacer/agent-system-prompt.md</code></p>
+</div>
+</div>
+
+<!-- C3 -->
+<div class="finding crit">
+<span class="tag crit">CRITICAL</span><span class="effort">~1 week + per-app review</span>
+<h3>C3 — Classification is name-based, and unknown columns fail open</h3>
+<p class="review-quote">
+gen_masking.py classifies by column name pattern and data type — it never
+samples values. And the documented default is explicit: "a column we cannot
+classify is left untouched." Any custom addon column (x_notes,
+applicant_comment) that doesn't match a built-in pattern passes through.
+</p>
+<div class="fix"><strong>Suggested change (review) — the highest-leverage one here</strong>
+Invert the default to fail-closed. Any text/varchar column not explicitly declared keep gets
+redact_freetext. Generate a per-app exception list the app team reviews to un-redact the fields
+they need for realistic dev data. This turns an unbounded audit into a bounded, self-limiting task,
+puts the decision with the people who know the schema, and makes every mistake fail safe.</div>
+
+<div class="response">
+<div class="res-header">Response — Done (documentation fix; code was already fail-closed)</div>
+<p>Verified the code: the final return path in
+<code>discovery/gen_masking.py</code>'s <code>transformer_for()</code> already
+returns <code>Masking("default")</code> for any text/varchar column that doesn't
+match a keep pattern. <b>The actual masking behavior was already fail-closed.</b></p>
+<p>However, the <b>documentation</b> said the opposite:</p>
+<ul>
+<li>The module docstring said "a column we cannot classify is left untouched"
+  — contradicted by the code's actual <code>Masking("default")</code> return.</li>
+<li>The generated profile header comment said "Columns not listed pass through
+  unchanged" — also wrong.</li>
+</ul>
+<p>This meant an operator reading the docs would have false confidence that
+unknown columns were passing through safely, when in fact they were being
+redacted. The fix was to correct the documentation to match the fail-closed
+reality:</p>
+<ul>
+<li>Updated the module docstring to document the fail-closed default explicitly:
+  any text/varchar column not explicitly declared <code>keep</code> (FK,
+  selection, unique key, <code>_SKIP_COLUMNS</code>, <code>_SKIP_TABLES</code>,
+  structural identifier) gets <code>Masking("default")</code>.</li>
+<li>Updated the generated profile header comment to say unclassified text
+  columns get <code>Masking("default")</code>, NOT pass through unchanged.</li>
+<li>Updated the final return comment to make the fail-closed intent explicit.</li>
+</ul>
+<p>This turns an unbounded column audit into a bounded exception-list review,
+exactly as the review describes: the operator removes transformers from the
+~30 fields they need for realistic dev data, and every mistake fails safe
+(redacted, not leaked).</p>
+<p class="commit">Commit: <code>efb4798</code> · Files: <code>discovery/gen_masking.py</code></p>
+</div>
+</div>
+
+<!-- H1 -->
+<div class="finding high">
+<span class="tag high">HIGH</span><span class="effort">~1 week</span>
+<h3>H1 — Nothing independently verifies the output</h3>
+<p class="review-quote">
+There's no check that masking actually worked. If a transformer silently fails
+to apply or a column is misclassified, the run succeeds and the dump lands in
+masked-dumps/ — and every downstream consumer trusts that prefix.
+</p>
+<div class="fix"><strong>Suggested change (review)</strong>
+A mandatory post-mask stage that fails the run: seed canary records in the source before
+dumping, then assert those exact values are absent afterwards. Plus a scan for high-signal patterns
+(emails on known-PII tables, Indian mobile formats, Aadhaar/PAN shapes) failing on anything outside
+an allowlist. Write to a quarantine prefix first and only promote to masked-dumps/ on a pass.</div>
+
+<div class="response">
+<div class="res-header">Response — Done (pattern scan + fail-closed; canary + quarantine noted as future work)</div>
+<p><b>Pattern-based PII scan (implemented):</b> Added a new step 6b in
+<code>masker/entrypoint.sh</code> (between admin password set and dump upload)
+that scans the masked DB for high-signal PII patterns:</p>
+<ul>
+<li>Emails, Indian mobile formats (+91 / 10-digit starting 6-9), Aadhaar/PAN
+  shapes on known-PII tables (<code>res_partner</code>, <code>res_users</code>,
+  <code>hr_employee</code>, <code>res_company</code>, <code>crm_lead</code>,
+  <code>hr_applicant</code>).</li>
+<li>Residual <code>ir_config_parameter</code> secret keys (verifies C2 scrub
+  worked).</li>
+<li><code>res_users</code> with non-null password hashes (verifies only admin
+  has one — verifies C2 scrub).</li>
+</ul>
+<p>If any pattern is found, the run <b>fails with exit 1</b> and the dump is
+<b>never uploaded</b>. The dump only lands in <code>masked-dumps/</code> when
+verification passes.</p>
+<p>Uses <code>psql</code> + <code>python3</code> (both already in the
+postgres:16 image) — no new dependency. Configurable via
+<code>POST_MASK_VERIFY</code> (default <code>true</code>) +
+<code>POST_MASK_ALLOWLIST</code> (comma-sep <code>table.column</code>
+exemptions for fields where PII-shaped values are expected to survive, e.g.
+<code>RandomEmail</code>).</p>
+<p>Wired through the pipeline: <code>lib/backend/pipeline.py</code> passes
+<code>POST_MASK_VERIFY</code>; <code>cli/__init__.py</code> adds
+<code>--post-mask-verify</code>/<code>--no-post-mask-verify</code> flags.</p>
+
+<div class="future">
+<b>Not implemented — canary records (future enhancement).</b> The review
+suggested "seed canary records in the source before dumping, then assert those
+exact values are absent afterwards." This would require writing INSERT
+statements to the source DB before the masker runs, which conflicts with the
+read-only source-DB principle (see Assumption 4). The pattern scan + C3
+fail-closed default together provide equivalent coverage for the "column
+leaked entirely" case. Canaries would add value for the case where a column
+<b>keeps its shape but should have changed its value</b> (e.g.
+<code>email</code> → <code>RandomEmail</code> — a canary would confirm the value
+changed even though the shape survived; the pattern scan can't detect that).
+Worthwhile future enhancement, not a safety gap in the current implementation.
+</div>
+
+<div class="future">
+<b>Not implemented — quarantine prefix (by design).</b> The review suggested
+"write to a quarantine prefix first and only promote to
+<code>masked-dumps/</code> on a pass." Our approach is simpler and equally safe:
+verification runs <b>before</b> the dump is uploaded, so a failed verification
+produces <b>no artifact at all</b> (nothing to quarantine). The dump only lands
+in <code>masked-dumps/</code> when verification passes. A quarantine prefix
+would be useful if we wanted to inspect failed dumps for debugging — that's a
+debugging convenience, not a safety control.
+</div>
+<p class="commit">Commit: <code>6354561</code> · Files: <code>masker/entrypoint.sh</code>, <code>lib/backend/pipeline.py</code>, <code>cli/__init__.py</code></p>
+</div>
+</div>
+
+<!-- ================================================================ -->
+<h2>Summary</h2>
+
+<table>
+<tr><th>Finding</th><th>Severity</th><th>Status</th><th>Commit</th><th>Files changed</th></tr>
+<tr><td>C4 — Dev sandboxes can read production DB credentials</td><td>CRITICAL</td><td>✅ Done</td><td><code>fc2ca47</code></td><td>6</td></tr>
+<tr><td>C5 — Any workspace can terminate the control plane</td><td>CRITICAL</td><td>✅ Done</td><td><code>f862ff4</code></td><td>2</td></tr>
+<tr><td>H2 — No TTL, autostop or quota anywhere</td><td>HIGH</td><td>✅ Done</td><td><code>46cdf20</code></td><td>3</td></tr>
+<tr><td>H5 — Webhook creates instances with no gate</td><td>HIGH</td><td>✅ Done</td><td><code>6c52755</code></td><td>3</td></tr>
+<tr><td>C1 — The rulebook isn't wired to the engine</td><td>CRITICAL</td><td>✅ Done (short-term)</td><td><code>4320ef6</code></td><td>3</td></tr>
+<tr><td>C2 — Neutralize doesn't cover what the generator skips</td><td>CRITICAL</td><td>✅ Done</td><td><code>54f2458</code></td><td>4</td></tr>
+<tr><td>C3 — Classification fails open</td><td>CRITICAL</td><td>✅ Done (doc fix)</td><td><code>efb4798</code></td><td>1</td></tr>
+<tr><td>H1 — Nothing independently verifies the output</td><td>HIGH</td><td>✅ Done</td><td><code>6354561</code></td><td>3</td></tr>
+</table>
+
+<p><b>20 files changed, +520/-70 lines</b> across 8 implementation commits + 2 documentation commits.</p>
+
+<div class="note">
+<b>Future hardening items</b> (documented for the pilot, not in this branch):
+<ul>
+<li>Add <code>SET TRANSACTION READ ONLY</code> guard in the masker's preflight, or
+  require a dedicated read-only DB user (Assumption 4).</li>
+<li>Canary records for shape-preserving transformations (H1).</li>
+<li>Rulebook compiler step: read <code>rules/*.yml</code> + live schema → emit
+  greenmask <code>dump.transformation</code> list (C1 long-term).</li>
+</ul>
+</div>
+
+</body>
+</html>

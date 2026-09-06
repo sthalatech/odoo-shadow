@@ -1,13 +1,13 @@
 # scripts/ — issue -> env + agent
 
 Two pieces that turn a GitHub issue (opened in a **profile's addons repo**)
-into a running odoo-synth workspace with an AI agent working on it:
+into a running odooshadow workspace with an AI agent working on it:
 
 1. `webhook_listener.py` — a Flask app that **runs on the Coder server**
    (the always-on control plane), receives GitHub `issues` webhooks, verifies
    the HMAC signature, and launches the runner.
 2. `issue_to_env.py` — the host-agnostic launcher: matches the issue's repo URL
-   to an odoo-synth profile (the latest preset for that repo) -> creates a Coder
+   to an odooshadow profile (the latest preset for that repo) -> creates a Coder
    env from the profile's latest mask run -> labels it `iss-<n>-<slug>` -> drives
    the agent (opencode/claude-code, driven by superpowers) with the issue
    details + per-profile system prompt.
@@ -18,7 +18,11 @@ into a running odoo-synth workspace with an AI agent working on it:
    GitHub issue opened                Coder server (always-on EC2)
    in the addons repo   ──webhook──▶  webhook_listener.py (port 8080, public)
    (e.g. your-addons-repo)                │
+                                          │ H5: issue must have the `synth-sandbox` label
+                                          │ (only a maintainer can add it -> trust gate)
+                                          │
                                           │ issue.opened  -> issue_to_env.py (create + agent)
+                                          │ issue.reopened -> issue_to_env.py (reuse or create)
                                           │ issue.closed  -> issue_to_env.py --teardown (delete ws)
                                           ▼
                                      match repo URL -> profile (S3)   [opened]
@@ -27,6 +31,20 @@ into a running odoo-synth workspace with an AI agent working on it:
                                      ── or [closed] ──
                                      match (repo, issue #) -> `coder delete` (frees EC2)
 ```
+
+## H5: opt-in label gate
+
+The listener only acts on `issue.opened` / `issue.reopened` when the issue
+carries the `synth-sandbox` label (configurable via
+`ODOOSHADOW_REQUIRED_LABEL`). This does two things:
+
+1. **Volume cap**: fifty issues don't create fifty instances -- only the ones
+   a maintainer explicitly opts in.
+2. **Security gate**: only a repo maintainer can add labels, so the prompt
+   author must be a maintainer, not anyone with a GitHub account.
+
+On `issue.reopened`, the launcher reuses the existing workspace for that
+issue (if it's still live) instead of creating a second one.
 
 - The Coder server is the only always-on box; a dev VM is ephemeral, so a
   webhook must not land on a dev VM.
@@ -67,7 +85,7 @@ into a running odoo-synth workspace with an AI agent working on it:
    string (step 3) makes the finish step explicit — that was the root cause of
    the agent stopping after "verify changes" with no commit/push/PR.
 5. **System prompt provision (Phase 1).**
-   `coder/templates/odoo-synth-workspacer/agent-system-prompt.md` is the placeholder,
+   `coder/templates/odooshadow-workspacer/agent-system-prompt.md` is the placeholder,
    staged into the env as `AGENT_CONTEXT.md` and (if the repo ships none)
    `AGENT.md` in the repo cwd so the agent follows the project context.
 6. **Post-launch module upgrade, generic for any repo.** The template's
@@ -83,7 +101,7 @@ deploy/13_webhook_listener.sh --secret <GITHUB_WEBHOOK_SECRET> [--port 8080]
 
 This opens a 2nd inbound port on the Coder SG, ships the repo to the Coder
 server over SSH, installs `webhook_listener.py` as a systemd service, and writes
-`GITHUB_WEBHOOK_SECRET` to `/etc/odoo-synth/webhook.env`.
+`GITHUB_WEBHOOK_SECRET` to `/etc/odooshadow/webhook.env`.
 
 Then in the **addons repo** (the profile repo, e.g. `your-addons-repo`):
 Settings -> Webhooks -> Add webhook:
@@ -95,8 +113,8 @@ Settings -> Webhooks -> Add webhook:
 Manage on the Coder server:
 ```bash
 ssh ubuntu@<CODER_SERVER_IP>
-systemctl status odoo-synth-webhook
-journalctl -u odoo-synth-webhook -f
+systemctl status odooshadow-webhook
+journalctl -u odooshadow-webhook -f
 ```
 
 ## Config (`config.yaml`, optional)
@@ -131,18 +149,18 @@ ISSUE_NUMBER=492 ISSUE_REPO_URL=https://github.com/your-org/your-addons-repo \
 ```bash
 # set the PR base branch once per profile (default uat); the issue launcher
 # tells the agent to `gh pr create --base <pr_base>` against it
-odoo-synth profile update <profile_id> --pr-base uat
+odooshadow profile update <profile_id> --pr-base uat
 
-odoo-synth workspace create --profile-id <id> --source-run-id <run> \
+odooshadow workspace create --profile-id <id> --source-run-id <run> \
   --issue "#42" --name iss-42-fix-login --upgrade-modules "module_a,module_b"
-odoo-synth workspace wait <workspace_id> --timeout 1200
-odoo-synth workspace agent <workspace_id> "Resolve #42: fix the login 500" --agent opencode --issue "#42"
+odooshadow workspace wait <workspace_id> --timeout 1200
+odooshadow workspace agent <workspace_id> "Resolve #42: fix the login 500" --agent opencode --issue "#42"
 ```
 
 `scripts/issue_to_env.py` is also runnable standalone with env vars
 (`ISSUE_NUMBER`, `ISSUE_TITLE`, `ISSUE_BODY`, `ISSUE_URL`, `ISSUE_REPO_URL`,
-`ODOO_SYNTH_AGENT`, `ODOO_SYNTH_MAX_ITER`, `ODOO_SYNTH_UPGRADE_MODULES`,
-`ODOO_SYNTH_BRANCH_HINT`) — that's exactly what the listener spawns.
+`ODOOSHADOW_AGENT`, `ODOOSHADOW_MAX_ITER`, `ODOOSHADOW_UPGRADE_MODULES`,
+`ODOOSHADOW_BRANCH_HINT`) — that's exactly what the listener spawns.
 
 ## Exit codes (issue_to_env.py)
 

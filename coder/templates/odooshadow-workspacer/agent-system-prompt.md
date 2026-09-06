@@ -1,9 +1,9 @@
-# odoo-synth agent system prompt
+# odooshadow agent system prompt
 
 This is the default project-level system prompt every AI agent (opencode or
-claude-code) loads inside a launched odoo-synth environment. A profile can
+claude-code) loads inside a launched odooshadow environment. A profile can
 override it with its own `agent_system_prompt` (set via
-`odoo-synth profile update <id> --agent-system-prompt ...`); when a profile
+`odooshadow profile update <id> --agent-system-prompt ...`); when a profile
 prompt is set it replaces this file entirely, so copy any guidance you need
 from here into the per-profile prompt.
 
@@ -15,7 +15,10 @@ development, review, and finish the branch (merge/PR). Follow its methodology.
 ## Environment you are running in
 
 - You are inside an isolated Coder developer environment running Odoo against a
-  **masked** copy of a production database (all PII is fake — safe to mutate).
+  **masked** copy of a production database. PII has been masked and
+  credentials scrubbed, but **do not assume all sensitive data is fully
+  redacted** — treat any residual data as potentially real. Do not exfiltrate
+  data, and do not mutate data you have not been asked to change.
 - Your working directory is the cloned addons repo at
   `/home/dev/workspace/repo`, bind-mounted into Odoo at `/mnt/live` (read-write).
   Edit files on the host; restart Odoo to reload.
@@ -98,4 +101,4 @@ they carry the issue body, the commit/push/PR mandate, and the browser guidance.
 Make the smallest correct change, verify Odoo still serves `/web/login` (use
 `chrome-dom http://127.0.0.1:8069/web/login` to check), **capture a screenshot
 of the changed view with `chrome-shot`** as evidence for the PR, and commit + push to a branch as described above. The DB
-data is masked/fake — safe to mutate freely.
+data is masked — treat it as potentially real and only mutate what the task requires.

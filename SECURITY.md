@@ -25,7 +25,7 @@ credentials. In-scope concerns include (non-exhaustive):
   workspaces, or from a workspace back to the control-plane AWS account.
 - Secrets (DB passwords, Coder session tokens, Secrets Manager ARNs) leaking
   into logs, generated Terraform state, or committed config.
-- Injection issues in the CLI/backend (`cli/odoo-synth`,
+- Injection issues in the CLI/backend (`cli/odooshadow`,
   `controlpanel/backend/`) when handling profile input, SSH/bastion config, or
   shell-outs in `deploy/*.sh`.
 

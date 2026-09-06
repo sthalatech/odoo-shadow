@@ -5,9 +5,9 @@
 #
 # Full pipeline provisioning: ECR + basic images (masker, discovery) + builder
 # IAM + Coder server + templates. Masking + envs run on demand via the
-# `odoo-synth` CLI (Coder runner/builder/env workspaces) -- no standing
+# `odooshadow` CLI (Coder runner/builder/env workspaces) -- no standing
 # ECS/Fargate cluster to provision. The Odoo image is NOT built here; it's
-# baked per-profile via `odoo-synth profile build`.
+# baked per-profile via `odooshadow profile build`.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # Install local prerequisites (idempotent): aws + python (pyyaml, boto3) +
@@ -25,14 +25,14 @@ bash deploy/10_builder.sh
 # 11_coder_server.sh grants iam:PassRole on (so the Coder server can launch
 # workspace VMs assuming the env-instance role).
 bash deploy/09_dev_env.sh
-# Discovery/masking now run on demand via `odoo-synth profile discover` /
-# `profile mask` (odoo-synth-discoverer / odoo-synth-masker Coder workspaces)
+# Discovery/masking now run on demand via `odooshadow profile discover` /
+# `profile mask` (odooshadow-discoverer / odooshadow-masker Coder workspaces)
 # -- no standing ECS cluster to provision.
 # Developer-environment control plane: Coder server (one EC2) + publish the
-# odoo-synth-workspacer, odoo-synth-builder, odoo-synth-discoverer, and
-# odoo-synth-masker templates to it. Requires `coder login` once (interactive).
+# odooshadow-workspacer, odooshadow-builder, odooshadow-discoverer, and
+# odooshadow-masker templates to it. Requires `coder login` once (interactive).
 # The builder template must be republished whenever
-# coder/templates/odoo-synth-builder changes or builds run a stale user-data.
+# coder/templates/odooshadow-builder changes or builds run a stale user-data.
 bash deploy/11_coder_server.sh
 set -a; . deploy/state.env; set +a
 # Coder login: headless first-admin setup + persist a session token to

@@ -39,7 +39,7 @@ from . import config
 
 _FLUSH_LINES = 50
 _FLUSH_SECONDS = 1.0
-_LOG_DIR = Path.home() / ".cache" / "odoo-synth" / "run-logs"
+_LOG_DIR = Path.home() / ".cache" / "odooshadow" / "run-logs"
 
 # (run_id -> {seq, lines, last_flush, lock})
 _buffers: dict[str, dict[str, Any]] = {}

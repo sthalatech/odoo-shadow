@@ -1,7 +1,7 @@
 # Input for:
-#   odoo-synth profile create --components-file examples/multi-repo/components.yaml \
+#   odooshadow profile create --components-file examples/multi-repo/components.yaml \
 #                              --dependencies-file examples/multi-repo/dependencies.yaml ...
-#   odoo-synth profile update  <id> --components-file examples/multi-repo/components.yaml
+#   odooshadow profile update  <id> --components-file examples/multi-repo/components.yaml
 #
 # Real 5-repo setup validated during multi-repo design (odoo + 4 services).
 # `port` is the platform's own assignment (used for peer wiring + the

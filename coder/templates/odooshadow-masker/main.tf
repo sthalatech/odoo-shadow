@@ -1,38 +1,42 @@
-# Coder template: the odoo-synth DISCOVERER workspace.
+# Coder template: the odooshadow MASKER workspace.
 #
-# Runs lib/backend/discovery.py's provenance discovery: connects to a live
-# source Odoo DB + its addons repo, and produces a discovery.json describing
-# exactly what an image must contain to run that dataset (installed modules,
-# python/apt deps, an auto-generated masking plan). SINGLE-CONTAINER workload
-# (the `discovery` image) that reads ~20 env vars, streams logs, exits with a
-# code:
+# Runs lib/backend/pipeline.py's mask orchestration: dumps + masks a live
+# source Odoo DB (greenmask), restores into a throwaway local postgres on this
+# workspace VM, and uploads a masked pg_dump artifact to S3 for envs to
+# hydrate from. SINGLE-CONTAINER workload (the `masker` image) that reads ~20
+# env vars, streams logs, exits with a code:
 #
 #   panel writes an env-file to S3 (presigned PUT+GET) + presigns a result URL
-#   panel launches `coder create -t odoo-synth-discoverer` passing image URI +
-#     the env-file GET URL + the result PUT URL
-#   workspace startup_script: docker pull the image, download the env-file,
-#     `docker run --env-file` the container, stream its stdout/stderr to the
-#     Coder log (which the panel tails via `coder logs -f`), and on completion
-#     PUT a result.json {status, exit_code, error, log_tail} to S3, then poweroff.
+#   panel launches `coder create -t odooshadow-masker` passing image URI + the
+#     env-file GET URL + the result PUT URL
+#   workspace startup_script: docker pull the image, start a throwaway local
+#     postgres target, download the env-file, `docker run --env-file` the
+#     container, stream its stdout/stderr to the Coder log (which the panel
+#     tails via `coder logs -f`), and on completion PUT a result.json
+#     {status, exit_code, error, log_tail} to S3, then poweroff.
 #
-# The panel keeps its orchestration role: it resolves secrets (DB password, git
-# token) and builds the env-file, then presigns S3 URLs and polls S3 for the
+# The panel keeps its orchestration role: it resolves secrets (DB password, SSH
+# key) and builds the env-file, then presigns S3 URLs and polls S3 for the
 # result. Provenance (profile discovery_hash, installed_modules, etc.) stays in
 # the profile's YAML file -- only the COMPUTE moves to Coder.
 #
-# Was previously folded into a shared "odoo-synth-runner" template (also used
-# for masking); split out so each Coder template maps to one distinct job.
-# See odoo-synth-masker for the mask counterpart -- identical infra/launch
-# shape, different container image and no local-postgres-target step.
+# Was previously folded into a shared "odooshadow-runner" template (also used
+# for discovery); split out so each Coder template maps to one distinct job.
+# See odooshadow-discoverer for the discover counterpart -- identical
+# infra/launch shape, different container image and no local-postgres-target
+# step.
 #
-# Privilege wall: this workspace uses the UNPRIVILEGED env instance profile
-# (odoo-synth-env-instance -> ECR pull only, NO source DB creds in the IAM,
-# NO ECR push, NO Secrets Manager). All source DB / git secrets travel in the
-# S3 env-file (presigned, short-lived), never as IAM perms and never baked
-# into the image. The builder profile (ECR push + Secrets + self-terminate) is
-# reserved for the odoo-synth-builder template and is never attached here.
-# Short-lived (poweroff after the job) and has no inbound ports (egress-only;
-# the Coder agent dials out).
+# Privilege wall: this workspace uses the runner-instance role
+# (odooshadow-runner-instance -> ECR pull + profile/* source-DB creds in the
+# IAM). All other source DB / SSH / git secrets travel in the S3 env-file
+# (presigned, short-lived), never baked into the image. The builder profile
+# (ECR push + Secrets + self-terminate) is reserved for the odooshadow-builder
+# template and is never attached here. Short-lived (poweroff after the mask)
+# and has no inbound ports (egress-only; the Coder agent dials out).
+#
+# C4 (DevOps review): the runner-instance role is distinct from env-instance
+# (dev workspaces), which has NO profile/* access. Mask/discover need source
+# creds; dev sandboxes must not have them.
 #
 # Infra defaults mirror the env/builder templates (thin golden AMI, default-VPC
 # subnet, env SG by name) so `coder create` needs no infra params.
@@ -56,7 +60,7 @@ data "coder_workspace" "me" {}
 data "aws_security_groups" "env_sg" {
   filter {
     name   = "group-name"
-    values = ["odoo-synth-env-sg"]
+    values = ["odooshadow-env-sg"]
   }
 }
 
@@ -87,8 +91,8 @@ data "aws_ami" "ubuntu_2204" {
 }
 
 locals {
-  # discovery is light (reads the source DB + clones the addons repo). A
-  # small instance is plenty; overridable per launch.
+  # masking is light (greenmask/pg_dump against the source + a local target).
+  # A small instance is plenty; overridable per launch.
   default_instance_type = "m5.large"
 
   # Fallback AMI: dynamically resolved latest Ubuntu 22.04. Override per
@@ -102,9 +106,12 @@ locals {
     local.default_ami_id,
   )
 
+  # C4 (DevOps review): masker needs source-DB creds (profile/* secrets) to
+  # connect to the production source. Use the runner-instance role, which
+  # grants profile/* access. The env-instance role (dev workspaces) does NOT.
   instance_profile = coalesce(
     data.coder_parameter.instance_profile.value,
-    "odoo-synth-env-instance",
+    "odooshadow-runner-instance",
   )
 
   sg_id = coalesce(
@@ -169,7 +176,7 @@ data "coder_parameter" "instance_type" {
 }
 
 # the single container to run (e.g. <acct>.dkr.ecr.us-east-1.amazonaws.com/
-# odoo-synth/discovery:latest).
+# odooshadow/masker:latest).
 data "coder_parameter" "image_uri" {
   name         = "image_uri"
   display_name = "Container image to run (ECR URI)"
@@ -210,12 +217,12 @@ data "coder_parameter" "result_put_url" {
   order        = 10
 }
 
-# a short tag for logs (e.g. "discover" / the profile id).
+# a short tag for logs (e.g. "mask" / the profile id).
 data "coder_parameter" "phase" {
   name         = "phase"
   display_name = "Phase tag (for log identification)"
   type         = "string"
-  default      = "discover"
+  default      = "mask"
   order        = 11
 }
 
@@ -230,8 +237,8 @@ resource "coder_agent" "main" {
     #!/usr/bin/env bash
     set -uo pipefail
     cd /root
-    exec > >(tee -a /var/log/odoo-synth-discoverer.log) 2>&1
-    echo "[discoverer] $(date -u) starting phase=${data.coder_parameter.phase.value} image=${data.coder_parameter.image_uri.value}"
+    exec > >(tee -a /var/log/odooshadow-masker.log) 2>&1
+    echo "[masker] $(date -u) starting phase=${data.coder_parameter.phase.value} image=${data.coder_parameter.image_uri.value}"
 
     REGION="${data.coder_parameter.region.value}"
     IMAGE_URI="${data.coder_parameter.image_uri.value}"
@@ -240,25 +247,25 @@ resource "coder_agent" "main" {
     RESULT_PUT_URL="${data.coder_parameter.result_put_url.value}"
     PHASE="${data.coder_parameter.phase.value}"
 
-    LOG=/var/log/odoo-synth-discoverer.log
+    LOG=/var/log/odooshadow-masker.log
     STATUS="failed"
     EXIT_CODE=1
     ERROR=""
 
-    fail() { ERROR="$1"; echo "[discoverer] ERROR: $1"; }
+    fail() { ERROR="$1"; echo "[masker] ERROR: $1"; }
 
     finish() {
       TAIL="$(tail -c 12000 "$LOG" 2>/dev/null | python3 -c 'import sys,json;print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo "")"
       printf '{"status":"%s","exit_code":%s,"error":%s,"log_tail":%s}\n' \
         "$STATUS" "$EXIT_CODE" \
         "$(printf '%s' "$ERROR" | python3 -c 'import sys,json;print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo '""')" \
-        "$TAIL" > /tmp/discoverer-result.json
+        "$TAIL" > /tmp/masker-result.json
       if [ -n "$RESULT_PUT_URL" ]; then
         curl -sS -X PUT -H "Content-Type: application/json" \
-          --data-binary @/tmp/discoverer-result.json "$RESULT_PUT_URL" || true
-        echo "[discoverer] result uploaded (status=$STATUS exit=$EXIT_CODE); powering off"
+          --data-binary @/tmp/masker-result.json "$RESULT_PUT_URL" || true
+        echo "[masker] result uploaded (status=$STATUS exit=$EXIT_CODE); powering off"
       else
-        echo "[discoverer] no result URL; powering off (status=$STATUS exit=$EXIT_CODE)"
+        echo "[masker] no result URL; powering off (status=$STATUS exit=$EXIT_CODE)"
       fi
       poweroff || true
     }
@@ -273,12 +280,12 @@ resource "coder_agent" "main" {
 
     # --- ECR login (pull) --------------------------------------------------
     REGISTRY="$(echo "$IMAGE_URI" | cut -d/ -f1)"
-    echo "[discoverer] logging in to ECR $REGISTRY ..."
+    echo "[masker] logging in to ECR $REGISTRY ..."
     aws ecr get-login-password --region "$REGION" \
       | docker login --username AWS --password-stdin "$REGISTRY" || { ERROR="ECR login failed"; exit 1; }
 
     # --- pull the image ----------------------------------------------------
-    echo "[discoverer] pulling $IMAGE_URI ..."
+    echo "[masker] pulling $IMAGE_URI ..."
     docker pull "$IMAGE_URI" || { ERROR="docker pull failed"; exit 1; }
 
     # --- fetch the env-setup script + source it ---------------------------
@@ -290,27 +297,26 @@ resource "coder_agent" "main" {
     ENV_SCRIPT=/tmp/container-env.sh
     : > "$ENV_SCRIPT"
     if [ -n "$ENV_FILE_GET_URL" ]; then
-      echo "[discoverer] downloading env-setup script ..."
+      echo "[masker] downloading env-setup script ..."
       curl -fsSL "$ENV_FILE_GET_URL" -o "$ENV_SCRIPT" || { ERROR="could not download env-setup script"; exit 1; }
       # shellcheck disable=SC1090
       . "$ENV_SCRIPT" || { ERROR="env-setup script failed to source"; exit 1; }
     else
-      echo "[discoverer] no env-setup URL; running with no env"
+      echo "[masker] no env-setup URL; running with no env"
     fi
 
     # --- resolve the profile's GitHub token (Coder user secret) -----------
     # The CLI passes GIT_TOKEN_ENV (the name of the Coder-injected env var for
     # this profile, e.g. GH_PAT_PROF_749C8A90). Coder injects the value into
     # the workspace agent env automatically; we re-export it as GIT_TOKEN for
-    # the container (which reads GIT_TOKEN, needed to clone a private addons
-    # repo). No AWS Secrets Manager round-trip.
+    # the container. No AWS Secrets Manager round-trip.
     if [ -n "$${GIT_TOKEN_ENV:-}" ]; then
       _val="$(printf '%s' "$${!GIT_TOKEN_ENV:-}")"
       if [ -n "$_val" ]; then
         export GIT_TOKEN="$_val"
-        echo "[discoverer] git token resolved from $${GIT_TOKEN_ENV}"
+        echo "[masker] git token resolved from $${GIT_TOKEN_ENV}"
       else
-        echo "[discoverer] WARN: $${GIT_TOKEN_ENV} is empty (secret not set in Coder?)"
+        echo "[masker] WARN: $${GIT_TOKEN_ENV} is empty (secret not set in Coder?)"
       fi
     fi
 
@@ -322,16 +328,39 @@ resource "coder_agent" "main" {
         [ -n "$_k" ] && ENV_ARGS+=("-e" "$_k")
       done
     fi
-    # Forward the resolved GIT_TOKEN (from the Coder user secret) into the
-    # container so the discovery image can clone a private addons repo.
+    # Forward the resolved GIT_TOKEN (from the Coder user secret), if any.
     if [ -n "$${GIT_TOKEN:-}" ]; then
       ENV_ARGS+=("-e" "GIT_TOKEN")
     fi
 
+    # --- throwaway local postgres target (no shared DB) --------------------
+    # Each mask run restores into a THROWAWAY local postgres container on this
+    # workspace VM. The masker neutralizes + prunes there, then pg_dumps it out
+    # as the artifact envs hydrate from (MASKED_DUMP_PUT_URL). So no two runs
+    # share a DB, and re-masking never clobbers another environment. The
+    # TARGET_DB_* from the panel are overridden here to point at this local
+    # container.
+    echo "[masker] starting local postgres target ..."
+    docker rm -f masker-db >/dev/null 2>&1 || true
+    docker run -d --name masker-db --network host \
+      -e POSTGRES_PASSWORD=runner -e POSTGRES_USER=runner -e POSTGRES_DB=postgres \
+      -v /var/lib/masker-db:/var/lib/postgresql/data postgres:16 \
+      >/dev/null 2>&1 || { ERROR="local postgres start failed"; exit 1; }
+    for _ in $(seq 1 60); do
+      docker exec masker-db pg_isready -U runner >/dev/null 2>&1 && break
+      sleep 2
+    done
+    export TARGET_DB_HOST=127.0.0.1 TARGET_DB_PORT=5432
+    export TARGET_DB_USER=runner TARGET_DB_PASSWORD=runner TARGET_DB_NAME=masked
+    ENV_ARGS+=("-e" "TARGET_DB_HOST" "-e" "TARGET_DB_PORT" "-e" "TARGET_DB_USER" \
+               "-e" "TARGET_DB_PASSWORD" "-e" "TARGET_DB_NAME")
+    echo "[masker] local postgres target ready (127.0.0.1:5432/masked as runner)."
+
     # --- run the container -------------------------------------------------
-    # --network host so the container can reach the source DB. Stream
+    # --network host so the container can reach the source DB, the SSH tunnel
+    # the entrypoint opens, and the local masker-db sibling. Stream
     # stdout+stderr to the Coder log (the panel tails `coder logs -f`).
-    echo "[discoverer] running container (phase=$PHASE) ..."
+    echo "[masker] running container (phase=$PHASE) ..."
     set +e
     docker run --rm --network host "$${ENV_ARGS[@]}" "$IMAGE_URI" 2>&1 \
       | sed -u 's/^/[container] /'
@@ -340,10 +369,10 @@ resource "coder_agent" "main" {
 
     if [ "$EXIT_CODE" -eq 0 ]; then
       STATUS="succeeded"
-      echo "[discoverer] done: container exited 0"
+      echo "[masker] done: container exited 0"
     else
       ERROR="container exited $EXIT_CODE"
-      echo "[discoverer] $ERROR"
+      echo "[masker] $ERROR"
     fi
     exit 0
   EOT
@@ -372,9 +401,9 @@ resource "aws_instance" "workspace" {
   EOT
   user_data_replace_on_change = true
   tags = {
-    Name                     = "odoo-synth-discoverer-${data.coder_parameter.phase.value}"
-    "odoo-synth:discoverer"  = data.coder_parameter.phase.value
-    "odoo-synth:managed"     = "true"
+    Name                 = "odooshadow-masker-${data.coder_parameter.phase.value}"
+    "odooshadow:masker"  = data.coder_parameter.phase.value
+    "odooshadow:managed" = "true"
   }
 }
 

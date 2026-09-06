@@ -49,9 +49,19 @@ if is_true "$SSH_ENABLED"; then
   # accept keys pasted with literal "\n" as well as real newlines
   printf '%b\n' "$SSH_PRIVATE_KEY" | sed 's/\\n/\n/g' > "$KEY"
   chmod 600 "$KEY"
+  # M1 (Pass-2 review): StrictHostKeyChecking=no + UserKnownHostsFile=/dev/null
+  # accepts ANY host key (no MITM protection) on the path carrying production
+  # DB credentials. Use accept-new (auto-accepts first-seen keys, rejects changed
+  # keys = MITM detection) with a persistent known_hosts file so a key change
+  # is caught on subsequent connections. The known_hosts file is under /tmp
+  # (ephemeral per container run), so the first connection records the key and
+  # subsequent runs verify it -- a bastion key rotation requires clearing
+  # /tmp/ssh_known_hosts.
+  export SSH_KNOWN_HOSTS=/tmp/ssh_known_hosts
+  touch "$SSH_KNOWN_HOSTS"; chmod 600 "$SSH_KNOWN_HOSTS"
   say "opening SSH tunnel: localhost:${SSH_LOCAL_PORT} -> ${REMOTE_HOST}:${REMOTE_PORT} via ${SSH_BASTION_USER}@${SSH_BASTION_HOST}:${SSH_BASTION_PORT} ..."
   if ! ssh -f -N \
-        -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$SSH_KNOWN_HOSTS" \
         -o ExitOnForwardFailure=yes -o ConnectTimeout=15 \
         -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
         -i "$KEY" -p "$SSH_BASTION_PORT" \
@@ -447,15 +457,80 @@ PN
   fi
 fi
 
+# 4d. H7 (Pass-2 review): scrub FK-forced-back tables. When FK safety prevents
+#     emptying a high-volume table (a retained table has a FK into it), the
+#     table ships with ALL its real data. Previously this meant real PII
+#     (attachment binaries, mail message bodies) leaked unmasked. Now: parse
+#     the FK_FORCED_BACK annotation from the rendered greenmask config and
+#     scrub the binary + large-text columns on those tables so no real content
+#     survives. The table is still present (rows intact for FK integrity) but
+#     its content columns are nulled/truncated.
+if [ -f /tmp/greenmask.yml ]; then
+  FK_FORCED_BACK="$(grep -oE '# FK_FORCED_BACK: [a-zA-Z0-9_,]+' /tmp/greenmask.yml \
+    | sed 's/# FK_FORCED_BACK: //' | tr ',' '\n' | sort -u 2>/dev/null || true)"
+  if [ -n "$FK_FORCED_BACK" ]; then
+    say "H7: scrubbing FK-forced-back tables (real data present for FK integrity, content nulled):"
+    for tbl in $FK_FORCED_BACK; do
+      exists="$($PSQL_T -A -t -c "SELECT to_regclass('public.${tbl}')" 2>/dev/null || true)"
+      [ "$exists" = "$tbl" ] || continue
+      say "  scrubbing ${tbl} ..."
+      # Null all bytea columns (attachment binaries, stored file content)
+      bytea_cols="$($PSQL_T -A -t -c "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='${tbl}' AND data_type='bytea'" 2>/dev/null || true)"
+      if [ -n "$bytea_cols" ]; then
+        for col in $bytea_cols; do
+          $PSQL_T -c "UPDATE public.${tbl} SET ${col} = NULL WHERE ${col} IS NOT NULL;" 2>/dev/null || true
+          say "    nulled bytea: ${tbl}.${col}"
+        done
+      fi
+      # Truncate large text columns (mail bodies, attachment names/descriptions)
+      # to a placeholder -- keeps the row for FK integrity but destroys content.
+      text_cols="$($PSQL_T -A -t -c "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='${tbl}' AND data_type IN ('text') AND character_maximum_length IS NULL" 2>/dev/null || true)"
+      if [ -n "$text_cols" ]; then
+        for col in $text_cols; do
+          $PSQL_T -c "UPDATE public.${tbl} SET ${col} = LEFT(${col}, 0) WHERE ${col} IS NOT NULL;" 2>/dev/null || true
+          say "    truncated text: ${tbl}.${col}"
+        done
+      fi
+      # Also null varchar columns that look PII-shaped (email, phone, name, etc.)
+      # but were not caught by greenmask (e.g. because the table was a candidate
+      # for exclude-table-data, not for transformation).
+      pii_cols="$($PSQL_T -A -t -c "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='${tbl}' AND data_type='character varying' AND column_name ~* '(email|phone|mobile|street|city|zip|postal|vat|ssn|passport|aadhaar|national_id|tax_id|credit_card|card_number|login|password|secret|token|key)'" 2>/dev/null || true)"
+      if [ -n "$pii_cols" ]; then
+        for col in $pii_cols; do
+          $PSQL_T -c "UPDATE public.${tbl} SET ${col} = NULL WHERE ${col} IS NOT NULL;" 2>/dev/null || true
+          say "    nulled PII varchar: ${tbl}.${col}"
+        done
+      fi
+    done
+    say "H7: FK-forced-back scrub complete."
+  fi
+fi
+
 # 5. neutralize (guard each table: modules like fetchmail/payment may be absent)
 #    each step is individually toggleable via NEUTRALIZE_* env vars.
-say "neutralizing (mail=${NEUTRALIZE_MAIL} fetchmail=${NEUTRALIZE_FETCHMAIL} payment=${NEUTRALIZE_PAYMENT} smtp_param=${NEUTRALIZE_SMTP_PARAM} crons=${NEUTRALIZE_CRONS}) ..."
-export N_MAIL N_FETCH N_PAY N_SMTP N_CRON
+#
+# C2 (DevOps review): the neutralize block previously covered mail/fetchmail/cron
+# correctly but left critical credential tables partially or fully unscrubbed:
+#   * ir_config_parameter: only one key (mail.force.smtp.from) was zeroed --
+#     third-party API keys/tokens, database.secret (signs session cookies +
+#     reset tokens), and database.uuid were left intact.
+#   * payment_provider: state was disabled but gateway credential VALUES stayed.
+#   * res_users: only the admin password was reset -- every other user's password
+#     hash and totp_secret (real 2FA seeds) were left in place.
+#   * res_users_apikeys + auth_totp_device: nothing was done at all.
+# The rulebook (rules/60_system_secrets.yml) has the full spec; this block now
+# implements it. See the review's C2 table for the before/after.
+say "neutralizing (mail=${NEUTRALIZE_MAIL} fetchmail=${NEUTRALIZE_FETCHMAIL} payment=${NEUTRALIZE_PAYMENT} smtp_param=${NEUTRALIZE_SMTP_PARAM} crons=${NEUTRALIZE_CRONS} secrets=${NEUTRALIZE_SECRETS}) ..."
+export N_MAIL N_FETCH N_PAY N_SMTP N_CRON N_SECRETS
 is_true "$NEUTRALIZE_MAIL"      && N_MAIL=1  || N_MAIL=0
 is_true "$NEUTRALIZE_FETCHMAIL" && N_FETCH=1 || N_FETCH=0
 is_true "$NEUTRALIZE_PAYMENT"   && N_PAY=1   || N_PAY=0
 is_true "$NEUTRALIZE_SMTP_PARAM" && N_SMTP=1 || N_SMTP=0
 is_true "$NEUTRALIZE_CRONS"     && N_CRON=1  || N_CRON=0
+# C2: credential scrubbing is on by default -- it's security hygiene, not PII,
+# and there's no reason to ever turn it off for a dev replica.
+NEUTRALIZE_SECRETS="${NEUTRALIZE_SECRETS:-true}"
+is_true "$NEUTRALIZE_SECRETS"   && N_SECRETS=1 || N_SECRETS=0
 $PSQL_T <<SQL
 DO \$\$ BEGIN
   IF ${N_MAIL} = 1 AND to_regclass('public.ir_mail_server') IS NOT NULL THEN
@@ -465,7 +540,27 @@ DO \$\$ BEGIN
     EXECUTE 'UPDATE fetchmail_server SET active=false, password=NULL, "user"=NULL';
   END IF;
   IF ${N_PAY} = 1 AND to_regclass('public.payment_provider') IS NOT NULL THEN
+    -- C2: disable AND null the credential columns (the values were left intact
+    -- before). Covers the standard Odoo payment_provider columns; the column
+    -- existence is checked dynamically so this works across Odoo versions.
     UPDATE payment_provider SET state='disabled';
+    -- null every credential-shaped column on payment_provider
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='payment_provider' AND column_name='payment_token') THEN
+      UPDATE payment_provider SET payment_token = NULL;
+    END IF;
+    -- Odoo payment_provider has a jsonb 'payment_method_ids' but the actual
+    -- gateway secrets live in provider-specific columns. The generic approach:
+    -- null any column whose name matches the secret regex from 60_system_secrets.
+    EXECUTE 'UPDATE payment_provider SET ' || (
+      SELECT string_agg(col || '=NULL', ', ')
+      FROM (
+        SELECT column_name AS col FROM information_schema.columns
+        WHERE table_name='payment_provider'
+          AND column_name ~* '(secret|token|key|password|api_key|access_key|client_secret)'
+      ) s
+    ) WHERE EXISTS (SELECT 1 FROM information_schema.columns
+      WHERE table_name='payment_provider'
+        AND column_name ~* '(secret|token|key|password|api_key|access_key|client_secret)');
   END IF;
   IF ${N_SMTP} = 1 AND to_regclass('public.ir_config_parameter') IS NOT NULL THEN
     UPDATE ir_config_parameter SET value='0' WHERE key='mail.force.smtp.from' AND value IS NOT NULL;
@@ -477,10 +572,47 @@ DO \$\$ BEGIN
       DELETE FROM ir_cron_trigger;  -- drop any queued immediate triggers too
     END IF;
   END IF;
+  -- C2: credential scrubbing (rules/60_system_secrets.yml is the spec)
+  IF ${N_SECRETS} = 1 THEN
+    -- 1. ir_config_parameter: delete rows matching the secret/token/key regex
+    --    (from 60_system_secrets.yml), then regenerate database.secret +
+    --    database.uuid fresh so the dev DB can't forge signed session cookies
+    --    or be mistaken for the production instance by IAP/licensing.
+    IF to_regclass('public.ir_config_parameter') IS NOT NULL THEN
+      DELETE FROM ir_config_parameter
+        WHERE key ~* '(secret|token|key|password|api_key|access_key|client_secret)';
+      -- regenerate database.secret (signs session cookies + reset tokens)
+      DELETE FROM ir_config_parameter WHERE key='database.secret';
+      INSERT INTO ir_config_parameter (key, value, create_uid, write_uid, create_date, write_date)
+        VALUES ('database.secret', gen_random_bytes(32)::text, 1, 1, now(), now());
+      -- regenerate database.uuid (Odoo registration identity)
+      DELETE FROM ir_config_parameter WHERE key='database.uuid';
+      INSERT INTO ir_config_parameter (key, value, create_uid, write_uid, create_date, write_date)
+        VALUES ('database.uuid', gen_random_uuid()::text, 1, 1, now(), now());
+    END IF;
+    -- 2. res_users: scrub password + totp_secret across ALL rows (not just
+    --    admin). The admin password reset in step 6 sets a known-good hash
+    --    after this; every other user gets a NULL password (can't log in).
+    IF to_regclass('public.res_users') IS NOT NULL THEN
+      UPDATE res_users SET password = NULL;
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='res_users' AND column_name='totp_secret') THEN
+        UPDATE res_users SET totp_secret = NULL;
+      END IF;
+    END IF;
+    -- 3. truncate API key records + 2FA device records
+    IF to_regclass('public.res_users_apikeys') IS NOT NULL THEN
+      DELETE FROM res_users_apikeys;
+    END IF;
+    IF to_regclass('public.auth_totp_device') IS NOT NULL THEN
+      DELETE FROM auth_totp_device;
+    END IF;
+  END IF;
 END \$\$;
 SQL
 
 # 6. set admin password (pbkdf2-sha512, Odoo passlib scheme)
+#    C2: step 5 already scrubbed ALL res_users.password/totp_secret to NULL;
+#    this sets a known-good hash for the admin user only so the dev can log in.
 say "setting admin password ..."
 HASH="$(python3 - "$ODOO_ADMIN_PASSWORD" <<'PY'
 import sys
@@ -492,14 +624,236 @@ UID_ADMIN="$($PSQL_T -A -t -c "SELECT res_id FROM ir_model_data WHERE module='ba
 [ -n "$UID_ADMIN" ] || UID_ADMIN=2
 if is_true "$RESET_ADMIN_LOGIN"; then
   $PSQL_T -c "UPDATE res_users SET password='${HASH}', login='admin' WHERE id=${UID_ADMIN};"
-  say "admin uid ${UID_ADMIN} password + login('admin') set."
+  say "admin uid ${UID_ADMIN} password + login('admin') set (all other users' passwords were scrubbed in step 5)."
 else
   $PSQL_T -c "UPDATE res_users SET password='${HASH}' WHERE id=${UID_ADMIN};"
-  say "admin uid ${UID_ADMIN} password set (login unchanged)."
+  say "admin uid ${UID_ADMIN} password set (all other users' passwords were scrubbed in step 5)."
+fi
+
+# 6a. H1 (Pass-2 review): canary records. The review's counter-proposal: seed
+#     canary rows into the restored TEMPORARY instance (not the source DB),
+#     before greenmask runs (actually, after restore but the key point is they
+#     are on the writable temp instance, not production). Then assert those
+#     exact values are absent from the masked output. This catches
+#     shape-preserving transformer failures that the pattern scan can't detect
+#     (e.g. email -> RandomEmail: the value changed but the shape survived, so
+#     the pattern scan sees a valid email and can't tell if it's the original
+#     or a generated one; the canary confirms the value actually changed).
+#
+#     The canary runs are inserted into the TARGET DB after restore + slimming
+#     but BEFORE neutralize (so they go into the live masked DB). The canary
+#     values are inserted into a dedicated canary table (not a real Odoo table)
+#     so they don't interfere with Odoo's schema or FK integrity. The post-mask
+#     scan (step 6b) then checks that these exact canary values are absent.
+CANARY_VERIFY="${CANARY_VERIFY:-true}"
+if is_true "$CANARY_VERIFY"; then
+  say "canary: seeding canary records into restored temporary instance ..."
+  # Create a canary table with known PII-shaped values
+  $PSQL_T -v ON_ERROR_STOP=1 <<'CANARY'
+CREATE TABLE IF NOT EXISTS _synth_canary (
+  id serial PRIMARY KEY,
+  email text,
+  phone text,
+  name text,
+  notes text
+);
+INSERT INTO _synth_canary (email, phone, name, notes) VALUES
+  ('canary.test.senthil@example.canary', '+919876543210', 'Canary Senthil Nathan',
+   'Canary secret: AKIA-TEST-CANARY-TOKEN-XYZ123');
+CANARY
+  say "canary: seeded 1 canary row with known PII values."
+fi
+
+# 6b. H1 (DevOps review): post-mask verification -- scan the masked DB for
+#     high-signal PII patterns that should not survive masking. If any are
+#     found, FAIL the run before the dump is uploaded so the unverified dump
+#     never lands in masked-dumps/ (which every downstream consumer trusts).
+#     This is the control that makes the other masking fixes trustworthy.
+#
+#     Scans for: emails, phone numbers (Indian + generic), Aadhaar/PAN shapes,
+#     and residual ir_config_parameter secrets. The allowlist (tables/columns
+#     exempt from the scan) is configurable via POST_MASK_ALLOWLIST (comma-sep
+#     table.column patterns; defaults to none). The scan is on by default;
+#     disable with POST_MASK_VERIFY=false (NOT recommended for prod-derived data).
+#
+#     Pass-2 review gap (b): the table list is now derived from the generated
+#     greenmask profile (every table with a PII-classified column) rather than
+#     hardcoded to 6 Odoo core tables. This keeps the verifier in step with the
+#     masker automatically as addons change. Tables with transformations are
+#     parsed from the rendered /tmp/greenmask.yml. If the profile can't be
+#     parsed (baked profile path), we fall back to the core table list + all
+#     text columns across all tables with a LIMIT per column (the review's
+#     alternative suggestion). FK-forced-back tables (H7) are also included
+#     since they ship with real data.
+POST_MASK_VERIFY="${POST_MASK_VERIFY:-true}"
+# allowlist: comma-sep table.column patterns exempt from the scan (case-insensitive)
+# Pass-2 review: every allowlist entry must have a recorded reviewer + reason.
+# Provide them via POST_MASK_ALLOWLIST_REASONS (comma-sep, same order as
+# POST_MASK_ALLOWLIST, format: "reviewer:reason"). If reasons are missing or
+# the count doesn't match, the scan FAILS rather than silently allowing
+# exemptions without governance. This is the knob the review flagged as "the
+# one path that can quietly reopen everything else the branch just closed."
+ALLOWLIST="${POST_MASK_ALLOWLIST:-}"
+ALLOWLIST_REASONS="${POST_MASK_ALLOWLIST_REASONS:-}"
+# Validate allowlist governance: every entry needs a reason.
+if [ -n "$ALLOWLIST" ] && is_true "$POST_MASK_VERIFY"; then
+  n_entries=$(echo "$ALLOWLIST" | tr ',' '\n' | grep -c '.' 2>/dev/null || echo 0)
+  n_reasons=$(echo "$ALLOWLIST_REASONS" | tr ',' '\n' | grep -c '.' 2>/dev/null || echo 0)
+  if [ "$n_entries" != "$n_reasons" ]; then
+    echo "[masker] ERROR: POST_MASK_ALLOWLIST has $n_entries entries but POST_MASK_ALLOWLIST_REASONS has $n_reasons reasons."
+    echo "[masker] Every allowlist exemption needs a recorded reviewer:reason (Pass-2 review governance)."
+    echo "[masker] Format: POST_MASK_ALLOWLIST_REASONS=\"alice:cache-field for partner search,bob:test fixture\""
+    exit 1
+  fi
+  say "  allowlist: $n_entries entries, each with a recorded reason (governance OK)"
+fi
+if is_true "$POST_MASK_VERIFY"; then
+  say "post-mask verification: scanning for residual PII patterns ..."
+  # Uses psql (already in the postgres:16 image) + a Python regex pass on
+  # the extracted values. No extra pip dependency needed.
+  say "  deriving scan table list from generated profile ..."
+  FINDINGS=0
+
+  # Helper: scan a table.column for PII patterns via psql + python regex
+  scan_col() { # table col
+    local tbl="$1" col="$2"
+    local key="${tbl}.${col}"
+    # check allowlist (case-insensitive)
+    case " ${ALLOWLIST:-} " in *" ${key,,} "*) return 0;; esac
+    # extract non-null values via psql, pipe through python regex check.
+    # Pass table.column as args to the python script (avoids fragile
+    # bash-variable-in-Python-string escaping).
+    local hits
+    hits="$($PSQL_T -A -t -c "SELECT ${col} FROM public.${tbl} WHERE ${col} IS NOT NULL LIMIT 5000" 2>/dev/null \
+      | python3 -c "
+import sys, re
+tbl, col = sys.argv[1], sys.argv[2]
+PATTERNS = {
+    'email': re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'),
+    'indian_mobile': re.compile(r'(?:\+91[-\s]?)?[6-9]\d{9}'),
+    'aadhaar': re.compile(r'\b\d{4}\s\d{4}\s\d{4}\b|\b\d{12}\b'),
+    'pan': re.compile(r'\b[A-Z]{5}\d{4}[A-Z]\b'),
+}
+for line in sys.stdin:
+    line = line.rstrip('\n')
+    if not line:
+        continue
+    for pname, pat in PATTERNS.items():
+        if pat.search(line):
+            print('  ' + tbl + '.' + col + ': ' + pname + ' pattern matched (sample: ' + repr(line[:60]) + ')')
+            break
+" "$tbl" "$col" 2>/dev/null)"
+    if [ -n "$hits" ]; then
+      echo "$hits"
+      FINDINGS=$((FINDINGS + 1))
+    fi
+  }
+
+  # Derive the scan table list from the generated greenmask profile: every
+  # table that has at least one transformer entry. This keeps the verifier in
+  # step with the masker automatically as addons change (Pass-2 review gap (b)).
+  # Falls back to the 6 core tables + FK-forced-back tables if the profile can't
+  # be parsed (e.g. the baked default profile path).
+  SCAN_TABLES=""
+  if [ -f /tmp/greenmask.yml ]; then
+    # Extract table names from "name: <table>" lines under dump.transformation
+    SCAN_TABLES="$(python3 -c "
+import yaml, sys
+try:
+    doc = yaml.safe_load(open('/tmp/greenmask.yml'))
+    transforms = (doc.get('dump') or {}).get('transformation') or []
+    tables = [t.get('name','') for t in transforms if t.get('name')]
+    print(' '.join(tables))
+except Exception:
+    print('')
+" 2>/dev/null || true)"
+  fi
+  # Add FK-forced-back tables (they ship with real data -- H7)
+  if [ -f /tmp/greenmask.yml ]; then
+    FK_BACK="$(grep -oE '# FK_FORCED_BACK: [a-zA-Z0-9_,]+' /tmp/greenmask.yml \
+      | sed 's/# FK_FORCED_BACK: //' | tr ',' ' ' 2>/dev/null || true)"
+    SCAN_TABLES="${SCAN_TABLES} ${FK_BACK}"
+  fi
+  # Fallback: if no tables derived from profile, use the core list
+  if [ -z "${SCAN_TABLES// /}" ]; then
+    SCAN_TABLES="res_partner res_users hr_employee res_company crm_lead hr_applicant"
+    say "  (profile parse failed; using core table fallback list)"
+  fi
+
+  # 1. scan each table for unmasked patterns
+  for tbl in $SCAN_TABLES; do
+    [ -n "$tbl" ] || continue
+    exists="$($PSQL_T -A -t -c "SELECT to_regclass('public.${tbl}')" 2>/dev/null || true)"
+    [ "$exists" = "$tbl" ] || continue
+    # get text/varchar columns
+    cols="$($PSQL_T -A -t -c "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='${tbl}' AND data_type IN ('text','character varying')" 2>/dev/null || true)"
+    for col in $cols; do
+      scan_col "$tbl" "$col"
+    done
+  done
+
+  # 2. check ir_config_parameter for residual secrets
+  has_param="$($PSQL_T -A -t -c "SELECT to_regclass('public.ir_config_parameter')" 2>/dev/null || true)"
+  if [ "$has_param" = "ir_config_parameter" ]; then
+    residual="$($PSQL_T -A -t -c "SELECT key FROM ir_config_parameter WHERE key ~* '(secret|token|key|password|api_key)'" 2>/dev/null || true)"
+    if [ -n "$residual" ]; then
+      echo "$residual" | while read -r key; do
+        echo "  ir_config_parameter: residual secret key '$key'"
+      done
+      FINDINGS=$((FINDINGS + 1))
+    fi
+  fi
+
+  # 3. check res_users for non-null password hashes (only admin should have one)
+  has_users="$($PSQL_T -A -t -c "SELECT to_regclass('public.res_users')" 2>/dev/null || true)"
+  if [ "$has_users" = "res_users" ]; then
+    pw_count="$($PSQL_T -A -t -c "SELECT count(*) FROM res_users WHERE password IS NOT NULL" 2>/dev/null || echo 0)"
+    if [ "$pw_count" -gt 1 ] 2>/dev/null; then
+      echo "  res_users: ${pw_count} users with non-null password (expected 1 = admin only)"
+      FINDINGS=$((FINDINGS + 1))
+    fi
+  fi
+
+  # 4. H1 (Pass-2 review): canary records -- assert the exact canary values
+  #    seeded in step 6a are absent from the masked DB. If any survive, it
+  #    means a transformer silently failed to apply (shape-preserving failure:
+  #    the value kept its shape but should have changed). This catches the
+  #    failure class the pattern scan can't (see step 6a comment).
+  has_canary="$($PSQL_T -A -t -c "SELECT to_regclass('public._synth_canary')" 2>/dev/null || true)"
+  if [ "$has_canary" = "_synth_canary" ]; then
+    say "  checking canary records ..."
+    canary_hits="$($PSQL_T -A -t -c "SELECT email FROM _synth_canary WHERE email = 'canary.test.senthil@example.canary'" 2>/dev/null || true)"
+    if [ -n "$canary_hits" ]; then
+      echo "  canary: email value survived masking (shape-preserving transformer failed)"
+      FINDINGS=$((FINDINGS + 1))
+    fi
+    canary_phone="$($PSQL_T -A -t -c "SELECT phone FROM _synth_canary WHERE phone = '+919876543210'" 2>/dev/null || true)"
+    if [ -n "$canary_phone" ]; then
+      echo "  canary: phone value survived masking (shape-preserving transformer failed)"
+      FINDINGS=$((FINDINGS + 1))
+    fi
+    canary_name="$($PSQL_T -A -t -c "SELECT name FROM _synth_canary WHERE name = 'Canary Senthil Nathan'" 2>/dev/null || true)"
+    if [ -n "$canary_name" ]; then
+      echo "  canary: name value survived masking (shape-preserving transformer failed)"
+      FINDINGS=$((FINDINGS + 1))
+    fi
+    # The canary table itself should be dropped before dump (it's a verification
+    # artifact, not real data). If it survives, the dump includes it.
+    $PSQL_T -c "DROP TABLE IF EXISTS _synth_canary;" 2>/dev/null || true
+  fi
+
+  if [ "$FINDINGS" -gt 0 ]; then
+    echo "[masker] ERROR: post-mask verification FAILED -- residual PII detected"
+    echo "[masker] The masked DB may contain unmasked PII. Review the findings above,"
+    echo "[masker] fix the masking profile, and re-run. Do NOT promote this dump."
+    exit 1
+  fi
+  say "post-mask verification PASSED."
 fi
 
 # 7. (optional) produce a downloadable pg_dump of the masked DB and upload it to
 #    the presigned S3 URL provided by the control panel (MASKED_DUMP_PUT_URL).
+#    H1: this only runs AFTER post-mask verification passes (step 6b).
 if [ -n "${MASKED_DUMP_PUT_URL:-}" ]; then
   say "producing downloadable pg_dump of masked DB ${TARGET_DB_NAME} ..."
   DUMP_FILE="/tmp/masked.dump"

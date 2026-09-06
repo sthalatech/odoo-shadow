@@ -19,7 +19,7 @@ source "$(dirname "$0")/lib.sh"
 
 BUILD_ROLE="${BUILD_ROLE:-$PROJECT-builder}"
 BUILD_PROFILE="${BUILD_PROFILE:-$PROJECT-builder-instance}"
-BUCKET="${DUMP_S3_BUCKET:-odoo-synth-dumps-$ACCOUNT_ID}"
+BUCKET="${DUMP_S3_BUCKET:-odooshadow-dumps-$ACCOUNT_ID}"
 PREFIX="${DUMP_S3_PREFIX:-masked-dumps}"
 # build artifacts live in a sibling prefix under the same bucket
 BUILD_PREFIX="$(dirname "$PREFIX")"; [ "$BUILD_PREFIX" = "." ] && BUILD_PREFIX="" || BUILD_PREFIX="$BUILD_PREFIX/"
@@ -58,9 +58,19 @@ doc = {
      # (<project>/<component-name>, see build.py's _ensure_ecr_repo), so a
      # single fixed repo ARN here 403s on every one of those.
      "Resource": [f"arn:aws:ecr:{region}:{acct}:repository/{project}/*"]},
+    # C5 (DevOps review): scope self-terminate to ONLY builder-tagged instances.
+    # Previously conditioned on odooshadow:managed=true, which also tags the
+    # Coder server (control plane) and every workspace -- so any builder could
+    # terminate the control plane and lose all workspace state. Now requires
+    # the narrower odooshadow:role=builder tag (applied only by the builder
+    # template). Belt-and-braces: explicit Deny on control-plane-tagged
+    # instances so even a misconfigured tag can't reach them.
     {"Sid": "SelfTerminate", "Effect": "Allow",
      "Action": ["ec2:TerminateInstances"], "Resource": "*",
-     "Condition": {"StringEquals": {"aws:ResourceTag/odoo-synth:managed": "true"}}},
+     "Condition": {"StringEquals": {"aws:ResourceTag/odooshadow:role": "builder"}}},
+    {"Sid": "DenyTerminateControlPlane", "Effect": "Deny",
+     "Action": ["ec2:TerminateInstances"], "Resource": "*",
+     "Condition": {"StringEquals": {"aws:ResourceTag/odooshadow:control-plane": "true"}}},
   ],
 }
 print(json.dumps(doc))

@@ -1,5 +1,5 @@
 # =====================================================================
-# odoo-synth configuration -- the single source of truth.
+# odooshadow configuration -- the single source of truth.
 # =====================================================================
 # Copy this file to `config.yaml` and fill in the values, then run:
 #     bash deploy/00_validate_config.sh
@@ -9,7 +9,7 @@
 # Secrets: any value can be written inline OR delegated to an env var / SSM
 # path so secrets never live in this file. Use the `ref:` form:
 #     session_token: { ref: env:CODER_SESSION_TOKEN }   # read from env var
-#     webhook_secret: { ref: ssm:odoo-synth/webhook }   # read from SSM Param
+#     webhook_secret: { ref: ssm:odooshadow/webhook }   # read from SSM Param
 # A plain string is taken literally.
 #
 # This is the single source of truth (it replaces the old flat `config.env`
@@ -24,13 +24,13 @@
 #     build ECR repo + builder instance type  -> per-PROFILE
 #   - mask profiles (PII rules), neutralize toggles, gm_jobs           -> per-MASK
 #   - all DB credentials (source/masked, admin/master passwords)       -> per-MASK/run
-#     via `odoo-synth profile create` and the mask/env CLI commands
+#     via `odooshadow profile create` and the mask/env CLI commands
 #     (secrets via env vars or Secrets Manager). Do not re-add them here.
 # =====================================================================
 
 aws:
   region: us-east-1
-  project: odoo-synth          # all AWS resources are named <project>-*
+  project: odooshadow          # all AWS resources are named <project>-*
 
 mask:
   greenmask_version: v0.2.22

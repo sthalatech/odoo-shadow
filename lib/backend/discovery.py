@@ -123,14 +123,14 @@ def run_discovery(profile_id: str, emit: LogSink, run_id: str | None = None) -> 
 
     store.update_profile(profile_id, image_status="discovering", error=None)
 
-    # ---- run the discovery container as an odoo-synth-discoverer workspace ----
+    # ---- run the discovery container as an odooshadow-discoverer workspace ----
     # Env vars written to S3 as an env-file. The discovery container writes its
     # OWN discovery.json to DISCOVERY_PUT_URL (the presigned URL above); the
     # workspace additionally writes a runner-result.json marker (exit_code)
     # which run_runner polls. We fetch discovery.json via get_url after the
     # workspace exits 0.
     env_pairs = _discovery_env_pairs(profile, put_url)
-    emit("[panel] launching Coder workspace (odoo-synth-discoverer) ...")
+    emit("[panel] launching Coder workspace (odooshadow-discoverer) ...")
     rr = pipeline.run_runner("discovery", env_pairs, "discover", emit,
                              template=pipeline.DISCOVERER_TEMPLATE, run_id=run_id)
     exit_code = rr.get("exit_code", 1)

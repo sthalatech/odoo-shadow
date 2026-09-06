@@ -49,7 +49,7 @@ ENV_SG_NAME="$PROJECT-env-sg"
 ENV_SG_ID="$(sg_id "$ENV_SG_NAME")"
 if [ -z "$ENV_SG_ID" ] || [ "$ENV_SG_ID" = "None" ]; then
   ENV_SG_ID="$(aws ec2 create-security-group --group-name "$ENV_SG_NAME" \
-    --description "odoo-synth developer environments (odoo; Coder tunnel)" \
+    --description "odooshadow developer environments (odoo; Coder tunnel)" \
     --vpc-id "$VPC" --region "$AWS_REGION" --query GroupId --output text)"
 fi
 
@@ -72,30 +72,46 @@ log "env SG=$ENV_SG_ID subnet=$ENV_SUBNET_ID"
 
 # ---------------------------------------------------------------------------
 # 2. IAM role + instance profile for environment instances
+#
+# C4 (DevOps review): dev workspaces must NOT be able to read production DB
+# credentials. Previously the env-instance role granted
+# secretsmanager:GetSecretValue on <project>/profile/* -- where the source-DB
+# password and bastion SSH key live -- so every developer sandbox could read
+# prod creds. Now split into two roles:
+#   * env-instance (dev workspaces): S3 masked-dump read + ECR pull + own env
+#     secrets only. NO profile/* access.
+#   * runner-instance (masker/discoverer): same + profile/* (source creds).
+# The masker/discoverer Coder templates default to runner-instance; the
+# workspacer template defaults to env-instance.
 # ---------------------------------------------------------------------------
 ENV_ROLE="$PROJECT-env-instance"
 ENV_PROFILE="$PROJECT-env-instance"
+RUNNER_ROLE="$PROJECT-runner-instance"
+RUNNER_PROFILE="$PROJECT-runner-instance"
 
-if ! aws iam get-role --role-name "$ENV_ROLE" >/dev/null 2>&1; then
-  aws iam create-role --role-name "$ENV_ROLE" \
-    --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}' >/dev/null
-fi
+_ensure_role(){ # role_name
+  if ! aws iam get-role --role-name "$1" >/dev/null 2>&1; then
+    aws iam create-role --role-name "$1" \
+      --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}' >/dev/null
+  fi
+}
+_ensure_profile(){ # profile_name role_name
+  if ! aws iam get-instance-profile --instance-profile-name "$1" >/dev/null 2>&1; then
+    aws iam create-instance-profile --instance-profile-name "$1" >/dev/null
+  fi
+  aws iam add-role-to-instance-profile --instance-profile-name "$1" \
+    --role-name "$2" >/dev/null 2>&1 || true
+}
 
-# inline policy: S3 masked-dump read + Secrets Manager (env passwords) + ECR
-# pull. Scoped to this project's resources. (The GitHub token for private
-# addons clone is no longer an AWS secret -- it's a Coder user secret injected
-# into the workspace env, so no Secrets Manager grant is needed for it.)
+_ensure_role "$ENV_ROLE"
+_ensure_role "$RUNNER_ROLE"
 
-POLICY_JSON="$(python3 - "$AWS_REGION" "$ACCOUNT_ID" "$DUMP_S3_BUCKET" "$DUMP_S3_PREFIX" "$PROJECT" <<'PY'
+# env-instance: S3 masked-dump read + own env secrets + ECR pull. NO profile/*.
+# The GitHub token for private addons clone is a Coder user secret (injected
+# into the workspace env), NOT an AWS secret, so no per-token grant here.
+ENV_POLICY="$(python3 - "$AWS_REGION" "$ACCOUNT_ID" "$DUMP_S3_BUCKET" "$DUMP_S3_PREFIX" "$PROJECT" <<'PY'
 import json, sys
 region, acct, bucket, prefix, project = sys.argv[1:6]
-# Env workspace reads masked dumps (S3) + pulls the odoo image (ECR). The GitHub
-# token for private addons clone is a Coder user secret (injected into the
-# workspace env), NOT an AWS secret, so no per-token grant here. Env/admin
-# passwords are Coder env vars too. The profile/env secret read is kept for the
-# runner (mask) workspaces that share this profile and read source creds.
-secret_arns = [f"arn:aws:secretsmanager:{region}:{acct}:secret:{project}/env/*",
-                  f"arn:aws:secretsmanager:{region}:{acct}:secret:{project}/profile/*"]
 doc = {
   "Version": "2012-10-17",
   "Statement": [
@@ -106,19 +122,17 @@ doc = {
      "Action": ["s3:ListBucket"],
      "Resource": [f"arn:aws:s3:::{bucket}"],
      "Condition": {"StringLike": {"s3:prefix": [f"{prefix}/*"]}}},
+    # Dev workspaces only need their OWN env secrets (Odoo admin pw etc.),
+    # NOT the source-DB profile secrets. Dropping <project>/profile/* here
+    # is the C4 fix -- it closes the sandbox-to-production credential pivot.
     {"Sid": "EnvSecrets", "Effect": "Allow",
      "Action": ["secretsmanager:GetSecretValue"],
-     "Resource": secret_arns},
+     "Resource": [f"arn:aws:secretsmanager:{region}:{acct}:secret:{project}/env/*"]},
     {"Sid": "EcrAuth", "Effect": "Allow",
      "Action": ["ecr:GetAuthorizationToken"], "Resource": "*"},
     {"Sid": "EcrPull", "Effect": "Allow",
      "Action": ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer",
                 "ecr:BatchCheckLayerAvailability"],
-     # Wildcarded to the whole project prefix: this role is also assumed by
-     # dev workspaces, which pull every multi-repo component's own image
-     # (<project>/<component-name>, created on the fly -- see build.py's
-     # _ensure_ecr_repo) in addition to odoo/masker/discovery, so a fixed
-     # enumeration here 403s on every component repo.
      "Resource": [f"arn:aws:ecr:{region}:{acct}:repository/{project}/*"]},
   ],
 }
@@ -127,19 +141,54 @@ PY
 )"
 aws iam put-role-policy --role-name "$ENV_ROLE" \
   --policy-name "$PROJECT-env-instance-policy" \
-  --policy-document "$POLICY_JSON" >/dev/null
+  --policy-document "$ENV_POLICY" >/dev/null
 
-if ! aws iam get-instance-profile --instance-profile-name "$ENV_PROFILE" >/dev/null 2>&1; then
-  aws iam create-instance-profile --instance-profile-name "$ENV_PROFILE" >/dev/null
-fi
-# attach role to profile (ignore if already attached)
-aws iam add-role-to-instance-profile --instance-profile-name "$ENV_PROFILE" \
-  --role-name "$ENV_ROLE" >/dev/null 2>&1 || true
+# runner-instance: same as env-instance PLUS profile/* (source DB creds +
+# bastion SSH key). Only masker/discoverer workspaces use this role.
+RUNNER_POLICY="$(python3 - "$AWS_REGION" "$ACCOUNT_ID" "$DUMP_S3_BUCKET" "$DUMP_S3_PREFIX" "$PROJECT" <<'PY'
+import json, sys
+region, acct, bucket, prefix, project = sys.argv[1:6]
+doc = {
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Sid": "MaskedDumpRead", "Effect": "Allow",
+     "Action": ["s3:GetObject"],
+     "Resource": [f"arn:aws:s3:::{bucket}/{prefix}/*"]},
+    {"Sid": "MaskedDumpList", "Effect": "Allow",
+     "Action": ["s3:ListBucket"],
+     "Resource": [f"arn:aws:s3:::{bucket}"],
+     "Condition": {"StringLike": {"s3:prefix": [f"{prefix}/*"]}}},
+    # Runner workspaces (mask + discover) DO need the source-DB profile secrets:
+    # they connect to the production source to dump/mask it. profile/* holds the
+    # source DB password and bastion SSH key.
+    {"Sid": "RunnerSecrets", "Effect": "Allow",
+     "Action": ["secretsmanager:GetSecretValue"],
+     "Resource": [f"arn:aws:secretsmanager:{region}:{acct}:secret:{project}/env/*",
+                  f"arn:aws:secretsmanager:{region}:{acct}:secret:{project}/profile/*"]},
+    {"Sid": "EcrAuth", "Effect": "Allow",
+     "Action": ["ecr:GetAuthorizationToken"], "Resource": "*"},
+    {"Sid": "EcrPull", "Effect": "Allow",
+     "Action": ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer",
+                "ecr:BatchCheckLayerAvailability"],
+     "Resource": [f"arn:aws:ecr:{region}:{acct}:repository/{project}/*"]},
+  ],
+}
+print(json.dumps(doc))
+PY
+)"
+aws iam put-role-policy --role-name "$RUNNER_ROLE" \
+  --policy-name "$PROJECT-runner-instance-policy" \
+  --policy-document "$RUNNER_POLICY" >/dev/null
+
+_ensure_profile "$ENV_PROFILE" "$ENV_ROLE"
+_ensure_profile "$RUNNER_PROFILE" "$RUNNER_ROLE"
 put_state ENV_INSTANCE_PROFILE "$ENV_PROFILE"
-log "env instance profile: $ENV_PROFILE (role $ENV_ROLE)"
+put_state RUNNER_INSTANCE_PROFILE "$RUNNER_PROFILE"
+log "env instance profile: $ENV_PROFILE (role $ENV_ROLE) -- NO profile/* access (C4)"
+log "runner instance profile: $RUNNER_PROFILE (role $RUNNER_ROLE) -- keeps profile/* for mask/discover"
 
 # The env workspace's addons repo URL/branch are NOT set here -- they are
-# per-PROFILE / per-workspace concerns, supplied at `odoo-synth workspace create`
+# per-PROFILE / per-workspace concerns, supplied at `odooshadow workspace create`
 # time (the env template's repo_url/repo_branch Coder parameters have no
 # default; a profile/preset pre-fills them). Nothing in config.yaml drives
 # this anymore. (The private-repo clone token is a Coder user secret, not an
@@ -179,7 +228,7 @@ UD="$(mktemp)"; trap 'rm -f "$UD"' EXIT
   # (and apt/docker helpers) need it. Export before provisioning.
   echo 'export HOME=/root'
   cat "$PROVISION"
-  echo 'touch /opt/odoo-synth-env/BAKE_OK'
+  echo 'touch /opt/odooshadow-env/BAKE_OK'
   echo 'poweroff'
 } > "$UD"
 
@@ -190,7 +239,7 @@ BUILDER_ID="$(aws ec2 run-instances --region "$AWS_REGION" \
   --instance-initiated-shutdown-behavior stop \
   --block-device-mappings 'DeviceName=/dev/sda1,Ebs={VolumeSize=30,VolumeType=gp3}' \
   --user-data "file://$UD" \
-  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value='"$PROJECT"'-env-builder},{Key=odoo-synth:managed,Value=true}]' \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value='"$PROJECT"'-env-builder},{Key=odooshadow:managed,Value=true}]' \
   --query 'Instances[0].InstanceId' --output text)"
 log "builder: $BUILDER_ID -- provisioning (docker + awscli + agent CLIs); this takes a few minutes"
 
@@ -219,7 +268,7 @@ log "builder provisioned + stopped; creating image ..."
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 ENV_AMI_ID="$(aws ec2 create-image --region "$AWS_REGION" \
   --instance-id "$BUILDER_ID" --name "$PROJECT-devenv-$STAMP" \
-  --description "odoo-synth thin dev-env AMI (ubuntu+docker+awscli+agents)" \
+  --description "odooshadow thin dev-env AMI (ubuntu+docker+awscli+agents)" \
   --query 'ImageId' --output text)"
 log "AMI $ENV_AMI_ID creating; waiting until available ..."
 aws ec2 wait image-available --region "$AWS_REGION" --image-ids "$ENV_AMI_ID"

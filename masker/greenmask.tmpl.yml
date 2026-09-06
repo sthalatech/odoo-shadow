@@ -2,7 +2,7 @@
 # SOURCE connection + storage path. Transformers mask core Odoo PII.
 # NOTE: whole-database dump (no `table:` filter). Transformers apply only to
 # listed PII columns; every other table/column passes through unchanged.
-# Column coverage mirrors odoo-synth rules/10_core.yml + 40_messaging.yml.
+# Column coverage mirrors odooshadow rules/10_core.yml + 40_messaging.yml.
 common:
   pg_bin_path: "/usr/lib/postgresql/16/bin"
   tmp_dir: /tmp

@@ -1,4 +1,4 @@
-# Runtime deps for the odoo-synth CLI + backend library
+# Runtime deps for the odooshadow CLI + backend library
 # (the FastAPI web panel was removed in Phase C2; only the library remains).
 boto3==1.35.90
 pyyaml==6.0.2

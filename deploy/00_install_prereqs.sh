@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 00: install local prerequisites for the odoo-synth CLI and deploy pipeline.
+# 00: install local prerequisites for the odooshadow CLI and deploy pipeline.
 #
 # Idempotent. Safe to re-run. Installs only what's missing. Does NOT touch
 # config.yaml / deploy/state.env (those carry secrets) and does NOT log you
@@ -205,9 +205,9 @@ fi
 # ----------------------------------------------------------------------------
 # 7. put the CLI on PATH (symlink) -- formerly cli/install.sh
 # ----------------------------------------------------------------------------
-log "linking odoo-synth onto PATH ..."
-CLI_BIN="$HERE/cli/odoo-synth"
-LINK="${ODOO_SYNTH_LINK:-/usr/local/bin/odoo-synth}"
+log "linking odooshadow onto PATH ..."
+CLI_BIN="$HERE/cli/odooshadow"
+LINK="${ODOOSHADOW_LINK:-/usr/local/bin/odooshadow}"
 if [ -x "$CLI_BIN" ]; then
   if [ -w "$(dirname "$LINK")" ]; then
     ln -sf "$CLI_BIN" "$LINK"
@@ -223,18 +223,18 @@ fi
 # ----------------------------------------------------------------------------
 # 8. blocking verification -- every required tool is actually on PATH.
 #    A soft WARN earlier is fine for optional tools (docker), but aws/python3/
-#    coder/odoo-synth are hard prerequisites for the CLI; if any is missing
+#    coder/odooshadow are hard prerequisites for the CLI; if any is missing
 #    we stop here rather than letting the user hit a cryptic FileNotFoundError
 #    from subprocess later.
 # ----------------------------------------------------------------------------
 log "verifying prerequisites ..."
 missing=""
-for tool in aws python3 coder odoo-synth docker; do
+for tool in aws python3 coder odooshadow docker; do
   if ! have "$tool"; then missing="$missing $tool"; fi
 done
 if [ -n "$missing" ]; then
   log "ERROR: required tool(s) missing:$missing"
-  log "       the odoo-synth CLI needs aws, python3, coder, docker on PATH."
+  log "       the odooshadow CLI needs aws, python3, coder, docker on PATH."
   log "       install them (or re-run this script as a user that can write /usr/local/bin) and try again."
   exit 1
 fi
@@ -250,4 +250,4 @@ if ! docker ps >/dev/null 2>&1; then
   log "            bash deploy/00_setup.sh"
   exit 1
 fi
-log "all prerequisites present: aws, python3, coder, odoo-synth, docker"
+log "all prerequisites present: aws, python3, coder, odooshadow, docker"

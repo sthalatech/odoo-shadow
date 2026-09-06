@@ -1,7 +1,7 @@
 """Developer environment lifecycle via Coder (coder/coder).
 
 An *environment* is a Coder workspace: an EC2 instance launched by the Coder
-server from the `odoo-synth-workspacer` Terraform template (existing thin golden AMI
+server from the `odooshadow-workspacer` Terraform template (existing thin golden AMI
 + existing env instance profile, no public IP, no per-env SG rules). The Coder
 agent running inside the workspace dials out to the Coder server over the
 public internet; the developer reaches the workspace (web terminal, VS Code
@@ -30,7 +30,7 @@ from typing import Optional
 
 from . import component_env, config, pipeline, profiles, store
 
-TEMPLATE_NAME = "odoo-synth-workspacer"
+TEMPLATE_NAME = "odooshadow-workspacer"
 
 
 def _region() -> str:
@@ -68,7 +68,7 @@ def _gen_password(n: int = 24) -> str:
 
 def _env_secret_prefix() -> str:
     e = config.environments_cfg() if hasattr(config, "environments_cfg") else {}
-    return (e.get("secret_prefix") or "odoo-synth/env")
+    return (e.get("secret_prefix") or "odooshadow/env")
 
 
 def _put_password_secret(env_id: str, password: str) -> str:
@@ -79,7 +79,7 @@ def _put_password_secret(env_id: str, password: str) -> str:
     name = f"{_env_secret_prefix()}/{env_id}/password"
     try:
         resp = sm.create_secret(Name=name, SecretString=password,
-                                Description="odoo-synth workspace Odoo admin password")
+                                Description="odooshadow workspace Odoo admin password")
         return resp["ARN"]
     except sm.exceptions.ResourceExistsException:
         sm.put_secret_value(SecretId=name, SecretString=password)
@@ -258,7 +258,7 @@ def create(source_run_id: Optional[str], issue: Optional[str],
     if not config.environments_configured():
         raise RuntimeError(
             "developer environments are not configured (set CODER_URL and "
-            "CODER_SESSION_TOKEN, and ensure the odoo-synth-workspacer template is "
+            "CODER_SESSION_TOKEN, and ensure the odooshadow-workspacer template is "
             "published to the Coder server)")
     s = config.environments_settings()
     profile = store.get_profile(profile_id) if profile_id else None
@@ -517,7 +517,7 @@ def ssh_exec(env_id: str, command: str, timeout: int = 600) -> tuple[int, str]:
 # Where the project-level system prompt for the AI agent lives. The hook writes
 # the first-phase placeholder here; contents are filled in later. Shipped in
 # the repo so every env loads the same project context.
-AGENT_SYSTEM_PROMPT_PATH = "coder/templates/odoo-synth-workspacer/agent-system-prompt.md"
+AGENT_SYSTEM_PROMPT_PATH = "coder/templates/odooshadow-workspacer/agent-system-prompt.md"
 
 
 def _stage_agent_context(env_id: str, issue: str, task: str, system_prompt: str) -> str:
@@ -529,7 +529,7 @@ def _stage_agent_context(env_id: str, issue: str, task: str, system_prompt: str)
     remote path written (empty on failure)."""
     import textwrap
     body = textwrap.dedent(f"""\
-        # odoo-synth agent context (env {env_id})
+        # odooshadow agent context (env {env_id})
 
         > ⚠️ READ THIS FILE FIRST. Before you do anything else, read this whole
         > file (and `AGENT.md` in your cwd if present). It carries the GitHub

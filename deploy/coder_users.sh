@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Manage Coder users on the odoo-synth Coder server.
+# Manage Coder users on the odooshadow Coder server.
 #
 # Coder is the auth + access boundary for developer environments:
 #   - the server uses built-in password auth (no --auth flag => 'password')
 #   - each workspace's apps default to sharing_level=owner (DB default), so
 #     ONLY the workspace's owner (and admins) can open them -- no extra config
 #   - a regular user (org member) can create their own workspaces from the
-#     org's templates (odoo-synth-workspacer / builder / discoverer / masker)
+#     org's templates (odooshadow-workspacer / builder / discoverer / masker)
 #     and only ever see their own workspaces' apps
 #   - sharing is OPT-IN per app, done by the owner from the Coder dashboard:
 #     open the workspace -> click an app -> Share -> authenticated|organization|public

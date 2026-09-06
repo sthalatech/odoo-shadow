@@ -12,8 +12,25 @@ by column shape + name.
 The operator reviews/edits this YAML before masking runs; the masker downloads
 it and uses it verbatim (after envsubst) instead of the baked profile.
 
-Best-effort: a column we cannot classify is left untouched (it passes through
-greenmask unchanged, exactly as today).
+C3 (DevOps review) -- fail-closed default: any ``text``/``varchar`` column
+that is not explicitly declared ``keep`` (structural identifier, FK, selection,
+or in the _SKIP_COLUMNS / _SKIP_TABLES allowlists) gets ``Masking(default)`` --
+the redact_freetext equivalent. This inverts the previous "unclassified = left
+untouched" posture so that unknown custom addon columns (``x_notes``,
+``applicant_comment``, ...) are redacted by default rather than passing through
+in the clear. The operator reviews the generated profile and removes
+transformers from the ~30 fields they need for realistic dev data, turning an
+unbounded audit into a bounded, self-limiting task.
+
+Pass-2 review -- unique columns: previously any column in a unique index was
+left UNMASKED (``return None``) to avoid collisions on the unique key. But a
+registration system's natural unique keys *are* its PII (participant email,
+phone, registration number, government ID). Unique text columns now get the
+greenmask ``Hash`` transformer: Hash is deterministic per input (injective:
+distinct inputs map to distinct outputs), so the unique index still builds
+without collision, and the real value is replaced. The only unique columns that
+still ``return None`` are FKs, selection fields, and non-text types -- the same
+structural exemptions as non-unique columns.
 """
 from __future__ import annotations
 
@@ -50,8 +67,14 @@ def snapshot_schema() -> tuple[dict[str, dict[str, dict]], dict[str, int]]:
     column has few distinct values (e.g. account_move(name, journal_id) WHERE
     state='posted'), two masked rows can collide on the full key and break a
     later CREATE UNIQUE INDEX (Odoo's _auto_init) or the table's COPY on restore.
-    So any column in any unique key is left UNMASKED (kept) -- these are
-    identifiers/sequences, not free PII. ``not_null`` = NOT NULL column."""
+    So any column in any unique key gets the greenmask ``Hash`` transformer
+    (deterministic per input -- injective -- so distinct values stay distinct
+    and the unique index still builds) rather than being left unmasked. The
+    only exception is a multi-column unique key where the *other* column is
+    non-text (e.g. an integer FK): Hash only applies to text, so in that case
+    the text column in the multi-column key is still Hashed (the integer column
+    is unchanged, and the hash of the text part is still injective, so the
+    composite key never collides). ``not_null`` = NOT NULL column."""
     tables: dict[str, dict[str, dict]] = {}
     cols = _psql_rows(
         "SELECT c.table_name, c.column_name, c.data_type, c.is_nullable "
@@ -614,11 +637,17 @@ def transformer_for(column: str, dtype: str, fk_target: str | None,
     """Return a greenmask transformer dict for a column, or None to leave it.
 
     ``unique`` = the column is part of ANY unique index/constraint (single- or
-    multi-column, full or partial). Masking such a column risks collisions on
-    the unique key (the account_move(name, journal_id) partial unique index is
-    the canonical Odoo case: RandomPerson names collide across posted moves and
-    break _auto_init's CREATE UNIQUE INDEX). These columns are identifiers /
-    sequences, not free PII, so they are LEFT UNMASKED (return None -> keep).
+    multi-column, full or partial). A shape-collapsing / non-injective
+    transformer (Masking, RandomPerson, ...) on such a column can emit
+    duplicate values and break a later CREATE UNIQUE INDEX (Odoo's _auto_init)
+    or the table's COPY on restore. BUT leaving unique columns UNMASKED ships
+    real PII -- a registration system's natural unique keys *are* its PII
+    (participant email, phone, registration number, government ID). So unique
+    text columns now get the greenmask ``Hash`` transformer instead of
+    ``return None``. Hash is deterministic per input (injective: distinct
+    inputs stay distinct), so the unique index still builds -- you get masking
+    *and* restore safety, rather than trading one for the other (Pass-2 review,
+    gap (a)).
     """
     if fk_target:
         return None  # FK (incl. partner ref): structural; target row is masked itself
@@ -677,11 +706,18 @@ def transformer_for(column: str, dtype: str, fk_target: str | None,
         return None
     if low in _SKIP_COLUMNS or low.endswith("_id") or low.endswith("_state"):
         return None
-    # Part of any unique key: keep the real value. Masking (even Hash on a
-    # multi-column key) can collide and break a unique index/constraint on
-    # restore or a later Odoo _auto_init. Unique columns are identifiers, not PII.
+    # Part of any unique key: use the greenmask ``Hash`` transformer. Hash is
+    # deterministic per input -> injective (distinct inputs map to distinct
+    # outputs), so the unique index still builds without collision. This
+    # replaces the previous ``return None`` (which shipped real PII on unique
+    # columns -- a registration system's natural unique keys *are* its PII:
+    # participant email, phone, registration number, government ID). The only
+    # columns that still ``return None`` are FKs (already handled above),
+    # selection fields (already handled), and non-text types (already handled)
+    # -- so this only fires on text/varchar unique columns. (Pass-2 review,
+    # gap (a) + the res_users.login prediction.)
     if unique:
-        return None
+        return {"name": "Hash", "column": column}
     # The greenmask `Masking` transformer keeps the value *shape* while hiding
     # the content (e.g. "John Smith" -> "Jo** *****"), which is far more useful
     # in a dev replica than a constant "REDACTED". Its `type` param picks the
@@ -734,7 +770,14 @@ def transformer_for(column: str, dtype: str, fk_target: str | None,
         else:
             tmpl = "{{ .FirstName }} {{ .LastName }}"
         return {"name": "RandomPerson", "column": column, "template": tmpl}
-    # generic free-text (notes, comments, description, ...) -> default masking
+    # C3 (DevOps review) -- FAIL-CLOSED default: any text/varchar column that
+    # didn't match a specific PII pattern (email, phone, name, ...) gets
+    # Masking("default") -- the redact_freetext equivalent. This is the inverted
+    # default: unknown custom addon columns (x_notes, applicant_comment, ...)
+    # are redacted rather than passing through in the clear. The operator
+    # reviews the generated profile and removes transformers from fields they
+    # need for realistic dev data (a bounded exception-list review, not an
+    # unbounded "audit every column" task).
     return _mask("default")
 
 
@@ -755,6 +798,21 @@ def generate_plan(installed_modules: list[str], _baseline_dir=None) -> tuple[str
     n_cols = 0
     for table in sorted(schema):
         if table in _SKIP_TABLES:
+            # Pass-2 review prediction: res_users is in _SKIP_TABLES (the masker
+            # handles password/admin reset), so login is never masked on the
+            # discovery-generated path. But Odoo logins ARE email addresses --
+            # H1 scans res_users for email patterns and would correctly FAIL on
+            # unmasked logins. The fix is to Hash login (injective: it's a
+            # UNIQUE column, so Hash keeps distinct logins distinct without
+            # collision) right here, even though the rest of res_users is
+            # skipped. The admin login is reset to 'admin' by the masker's
+            # RESET_ADMIN_LOGIN step, so only non-admin users are affected.
+            if table == "res_users" and "login" in schema.get(table, {}):
+                info = schema[table]["login"]
+                if info.get("data_type", "").lower() in _TEXT_TYPES:
+                    table_transformers.setdefault(table, []).append(
+                        {"name": "Hash", "column": "login"})
+                    n_cols += 1
             continue  # core auth/metadata/credential tables: masker handles them
         tlist: list[dict] = []
         for col in sorted(schema[table]):
@@ -808,8 +866,11 @@ def _render_greenmask(table_transformers: dict[str, list[dict]],
         "# greenmask masking profile (auto-generated during provenance discovery).",
         "# Transformers were derived from the LIVE source schema: PII-shaped text",
         "# columns on public tables are masked. Review/edit before masking runs.",
-        "# Columns not listed pass through unchanged. FKs and bytea are skipped",
-        "# (the referenced row is masked at its own table).",
+        "# C3: unclassified text columns get Masking(default) (fail-closed) -- they",
+        "# do NOT pass through unchanged. FKs, bytea, selection fields,",
+        "# _SKIP_COLUMNS/_SKIP_TABLES are the only columns left unmasked.",
+        "# Pass-2: unique text columns get Hash (injective) instead of being",
+        "# skipped -- a registration system's unique keys ARE its PII.",
         "#",
         "# Rendered by the masker via envsubst (${SOURCE_DB_*}/${GM_STORAGE}/${GM_JOBS}).",
         "common:",
@@ -839,6 +900,11 @@ def _render_greenmask(table_transformers: dict[str, list[dict]],
             "    # NOT excluded (a retained table has a FK into them; emptying")
         lines.append(
             f"    #   would break restore): {', '.join(dropped_unsafe)}")
+        # H7 (Pass-2 review): emit a machine-readable annotation of the
+        # FK-forced-back tables so the masker can scrub their binary/large
+        # columns post-restore (they ship with real data because they can't
+        # be emptied). Parsed by masker/entrypoint.sh step 4d.
+        lines.append(f"    # FK_FORCED_BACK: {','.join(dropped_unsafe)}")
     lines.append("  transformation:")
     # emit an entry for every table that needs a transformer.
     for table in sorted(table_transformers):

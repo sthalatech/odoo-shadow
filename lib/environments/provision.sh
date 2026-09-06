@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# Golden-AMI provisioner for odoo-synth developer environments.
+# Golden-AMI provisioner for odooshadow developer environments.
 #
 # Run this ONCE on a fresh Ubuntu 22.04/24.04 instance, then bake an AMI from
 # it (aws ec2 create-image). The AMI id goes into config.yaml (environments.
@@ -239,6 +239,6 @@ printf 'export PATH="$HOME/.local/bin:$PATH"\n' >> /home/dev/.bashrc
 # ecr:GetAuthorizationToken + pull) so the AMI stays thin and never goes stale.
 docker pull postgres:16 || true
 
-mkdir -p /opt/odoo-synth-env
-echo "provisioned $(date -u +%FT%TZ)" > /opt/odoo-synth-env/PROVISIONED
+mkdir -p /opt/odooshadow-env
+echo "provisioned $(date -u +%FT%TZ)" > /opt/odooshadow-env/PROVISIONED
 echo "[provision] golden AMI toolchain installed."

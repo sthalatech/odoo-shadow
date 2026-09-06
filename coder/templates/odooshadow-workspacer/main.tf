@@ -1,4 +1,4 @@
-# Coder template: an odoo-synth developer environment.
+# Coder template: an odooshadow developer environment.
 #
 # One EC2 instance (existing thin golden AMI + existing env instance profile) in
 # a default-VPC subnet, NO public IP — the Coder agent dials OUT to the Coder
@@ -36,7 +36,7 @@ data "coder_parameter" "instance_type" {
 }
 
 # Infra defaults: the panel used to pass these per-create, which made a bare
-# `coder create -t odoo-synth-workspacer <name>` fail (aws_instance needs a non-empty
+# `coder create -t odooshadow-workspacer <name>` fail (aws_instance needs a non-empty
 # ImageId/instance-profile/subnet/SG). They are now first-class defaults derived
 # from the shared infra (deploy/state.env: ENV_AMI_ID/ENV_INSTANCE_PROFILE/
 # ENV_SUBNET_ID/ENV_SG_ID). They can still be overridden per-workspace.
@@ -242,14 +242,14 @@ data "coder_workspace" "me" {}
 # --- infra defaults via data sources (Phase 1 of Option E) --------------------
 # When the user leaves instance_profile / security_group_id / subnet_id empty,
 # resolve them by name (SG) or as the first default-VPC subnet, so
-# `coder create -t odoo-synth-workspacer <name>` works with no infra params. The panel
+# `coder create -t odooshadow-workspacer <name>` works with no infra params. The panel
 # can still pass explicit values to override.
 
-# Env SG is a single named SG (odoo-synth-env-sg); look it up by name.
+# Env SG is a single named SG (odooshadow-env-sg); look it up by name.
 data "aws_security_groups" "env_sg" {
   filter {
     name   = "group-name"
-    values = ["odoo-synth-env-sg"]
+    values = ["odooshadow-env-sg"]
   }
 }
 
@@ -267,7 +267,9 @@ locals {
   # ImageId), so fall back to the dynamically-resolved Ubuntu 22.04 AMI.
   ami_id           = length(data.coder_parameter.ami_id.value) > 0 ? data.coder_parameter.ami_id.value : data.aws_ami.ubuntu_2204.id
   sg_id            = length(data.coder_parameter.security_group_id.value) > 0 ? data.coder_parameter.security_group_id.value : (length(data.aws_security_groups.env_sg.ids) > 0 ? data.aws_security_groups.env_sg.ids[0] : "")
-  instance_profile = length(data.coder_parameter.instance_profile.value) > 0 ? data.coder_parameter.instance_profile.value : "odoo-synth-env-instance"
+  # C4 (DevOps review): dev workspaces use env-instance (NO profile/* source-DB
+  # creds). Masker/discoverer use runner-instance instead.
+  instance_profile = length(data.coder_parameter.instance_profile.value) > 0 ? data.coder_parameter.instance_profile.value : "odooshadow-env-instance"
   subnet_id        = length(data.coder_parameter.subnet_id.value) > 0 ? data.coder_parameter.subnet_id.value : (length(data.aws_subnets.default_vpc.ids) > 0 ? data.aws_subnets.default_vpc.ids[0] : "")
 
   # one password per workspace for the Odoo admin user (matches the
@@ -303,10 +305,23 @@ resource "coder_agent" "main" {
   os                      = "linux"
   arch                    = "amd64"
   startup_script_behavior = "blocking"
+  # H2 (DevOps review): inactivity autostop. When Coder stops the workspace
+  # (inactivity timeout or manual stop), the shutdown_script powers off the
+  # EC2 instance cleanly so no compute is billed for idle workspaces.
+  shutdown_script = <<-EOT
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Graceful: stop Odoo containers, then poweroff. Coder's
+    # aws_ec2_instance_state resource will also set the instance to "stopped"
+    # on transition=="stop", but this runs first (inside the agent) so Odoo
+    # gets a clean shutdown rather than a hard power-cut.
+    docker stop env-odoo env-db 2>/dev/null || true
+    sudo poweroff 2>/dev/null || true
+  EOT
   startup_script          = <<-EOT
     #!/usr/bin/env bash
     set -euo pipefail
-    exec > >(tee -a /var/log/odoo-synth-workspacer.log) 2>&1
+    exec > >(tee -a /var/log/odooshadow-workspacer.log) 2>&1
     echo "[workspacer ${data.coder_workspace.me.id}] boot $(date -u +%FT%TZ) issue=${data.coder_parameter.issue.value}"
 
     REGION="${data.coder_parameter.region.value}"
@@ -547,7 +562,7 @@ PY
     # {"components": [], "dependencies": []} (base64) for a legacy single-repo
     # profile -- the python3 step below then writes zero manifest lines and
     # this whole block is a no-op, same as before multi-repo support existed.
-    # All components here run --network host (like every other odoo-synth
+    # All components here run --network host (like every other odooshadow
     # Coder template, and now env-odoo/env-db themselves too) so they reach
     # env-db (bound directly to 127.0.0.1:5432, same host network namespace)
     # and each other via plain localhost:<port> -- lib/backend/component_env.py
@@ -772,7 +787,7 @@ PYEOF
     # the authenticated tunnel (owner-only by default).
     cat > /home/dev/workspace/index.html <<HTML
 <!doctype html><html><head><meta charset="utf-8">
-<title>odoo-synth env guide</title>
+<title>odooshadow env guide</title>
 <style>
   body{font:15px/1.55 -apple-system,Segoe UI,sans-serif;max-width:880px;margin:2em auto;padding:0 1.5em;color:#222;background:#fafafa}
   h1{font-size:1.5em;border-bottom:2px solid #777;padding-bottom:.2em}
@@ -785,7 +800,7 @@ PYEOF
   td,th{border:1px solid #ddd;padding:.3em .6em;text-align:left;vertical-align:top}
   th{background:#eee}
 </style></head><body>
-<h1>odoo-synth environment guide</h1>
+<h1>odooshadow environment guide</h1>
 <p>Everything running in this workspace, where it lives, and how to drive it.</p>
 
 <h2>Containers (docker)</h2>
@@ -842,7 +857,7 @@ docker exec env-db psql -U odoo -d $${DB_NAME} -tAc \
 <table>
 <tr><th>what</th><th>where</th></tr>
 <tr><td>Odoo runtime log</td><td><code>docker logs env-odoo</code> (stdout, no file)</td></tr>
-<tr><td>workspace boot / dump restore / clone</td><td><code>/var/log/odoo-synth-workspacer.log</code></td></tr>
+<tr><td>workspace boot / dump restore / clone</td><td><code>/var/log/odooshadow-workspacer.log</code></td></tr>
 <tr><td>addon pip install</td><td><code>/home/dev/workspace/pip-addons.log</code> (if a repo was cloned)</td></tr>
 </table>
 
@@ -866,7 +881,7 @@ echo "\$ODOO_MASTER_PASSWORD"
   <li>The DB volume (<code>/var/lib/env-db</code>) persists across workspace
       stop/start; the masked dump is restored only on first boot.</li>
   <li>If the addons repo is private, set a GitHub token on the profile via
-  <code>odoo-synth profile create --git-token &lt;PAT&gt;</code> (stored as a
+  <code>odooshadow profile create --git-token &lt;PAT&gt;</code> (stored as a
       Secrets Manager GitHub token) at create time; otherwise the clone is
       skipped and Odoo runs from image-baked addons only.</li>
 </ul>
@@ -876,7 +891,7 @@ HTML
 
     cat > /etc/systemd/system/env-info.service <<EISVC
 [Unit]
-Description=odoo-synth env info page (localhost)
+Description=odooshadow env info page (localhost)
 After=network-online.target
 Wants=network-online.target
 [Service]
@@ -906,13 +921,13 @@ EISVC
       install -d -o dev -g dev /home/dev/.local/bin
       ln -sf /usr/local/bin/claude /home/dev/.local/bin/claude 2>/dev/null
       cat > /home/dev/workspace/CLAUDE.md <<'CMDOC'
-# odoo-synth environment (Claude Code project guide)
+# odooshadow environment (Claude Code project guide)
 
 ## Where things are
 - Addons repo (your working copy): /home/dev/workspace/repo , bind-mounted into Odoo at /mnt/live .
 - Odoo runs in the env-odoo docker container (host port 127.0.0.1:8069).
 - Postgres runs in the env-db container (host 127.0.0.1:5432, user/db odoo, password odoo).
-- Boot log: /var/log/odoo-synth-workspacer.log .
+- Boot log: /var/log/odooshadow-workspacer.log .
 - Env Guide page: http://localhost:8090/ (the Env Guide app on the workspace page).
 
 ## Running / restarting Odoo
@@ -1079,10 +1094,10 @@ resource "aws_instance" "workspace" {
   EOT
   user_data_replace_on_change = true
   tags = {
-    Name                    = "odoo-synth-workspacer-${data.coder_workspace.me.name}"
-    "odoo-synth:workspacer" = data.coder_workspace.me.id
-    "odoo-synth:managed"    = "true"
-    "odoo-synth:issue"      = data.coder_parameter.issue.value
+    Name                    = "odooshadow-workspacer-${data.coder_workspace.me.name}"
+    "odooshadow:workspacer" = data.coder_workspace.me.id
+    "odooshadow:managed"    = "true"
+    "odooshadow:issue"      = data.coder_parameter.issue.value
   }
 }
 

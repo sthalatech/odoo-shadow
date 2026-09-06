@@ -1,9 +1,9 @@
-# pyproject.toml — odoo-synth
+# pyproject.toml — odooshadow
 #
-# Build/packaging metadata for the odoo-synth CLI + backend library.
+# Build/packaging metadata for the odooshadow CLI + backend library.
 #
 # This makes the repo `pip install -e .`-able so an editable install puts the
-# `odoo-synth` console script on PATH and exposes the `backend` package on
+# `odooshadow` console script on PATH and exposes the `backend` package on
 # sys.path without each caller having to sys.path.insert() the lib/ dir.
 #
 # IMPORTANT — repository-layout assumption:
@@ -24,13 +24,13 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "odoo-synth"
+name = "odooshadow"
 version = "0.1.0"
 description = "Odoo database masking + synthetic-data developer-environment pipeline (CLI + library)."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
-authors = [{ name = "odoo-synth contributors" }]
+authors = [{ name = "odooshadow contributors" }]
 keywords = ["odoo", "masking", "greenmask", "coder", "synthetic-data", "postgres"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -51,9 +51,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/sthalatech/odoo-synth-coder"
-Repository = "https://github.com/sthalatech/odoo-synth-coder"
-Issues = "https://github.com/sthalatech/odoo-synth-coder/issues"
+Homepage = "https://github.com/sthalatech/odooshadow-coder"
+Repository = "https://github.com/sthalatech/odooshadow-coder"
+Issues = "https://github.com/sthalatech/odooshadow-coder/issues"
 
 [project.optional-dependencies]
 # `pip install -e ".[dev]"` — linting + formatting for contributors.
@@ -67,8 +67,8 @@ test = [
 ]
 
 [project.scripts]
-# Installs an `odoo-synth` executable on PATH that calls cli.main().
-odoo-synth = "cli:main"
+# Installs an `odooshadow` executable on PATH that calls cli.main().
+odooshadow = "cli:main"
 
 # --- packaging layout ------------------------------------------------------
 #
@@ -80,8 +80,8 @@ odoo-synth = "cli:main"
 #   cli/      -> the `cli` package      (cli/__init__.py — argparse entry, main())
 #   lib/      -> the `backend` package  (lib/backend/__init__.py — the library)
 #
-# `cli/odoo-synth` is kept as a thin launcher so the historical
-# `./cli/odoo-synth` invocation and the deploy/00_install_prereqs.sh symlink
+# `cli/odooshadow` is kept as a thin launcher so the historical
+# `./cli/odooshadow` invocation and the deploy/00_install_prereqs.sh symlink
 # target keep working; the console-script entry point above is the install-time
 # equivalent.
 

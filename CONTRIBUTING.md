@@ -26,12 +26,12 @@ commit in a fresh clone:
 
 - Shell scripts (`deploy/*.sh`): `set -euo pipefail`, match the existing
   `lib.sh` logging helpers rather than introducing new ones.
-- Python (`controlpanel/backend/`, `cli/odoo-synth`): no new third-party deps
+- Python (`controlpanel/backend/`, `cli/odooshadow`): no new third-party deps
   without a reason; keep the CLI calling the backend library in-process (no
   HTTP layer — see `controlpanel/README.md`).
 - Terraform (`coder/templates/*`): all four Coder templates
-  (`odoo-synth-workspacer`, `odoo-synth-builder`, `odoo-synth-discoverer`,
-  `odoo-synth-masker`) must be re-published together when shared conventions
+  (`odooshadow-workspacer`, `odooshadow-builder`, `odooshadow-discoverer`,
+  `odooshadow-masker`) must be re-published together when shared conventions
   change — see `deploy/12_publish_template.sh`.
 
 ## Testing your change
@@ -40,7 +40,7 @@ There's no CI yet, so validate locally before opening a PR:
 
 ```bash
 bash deploy/00_validate_config.sh    # config + AWS auth + CLI tooling sanity
-odoo-synth profile list              # smoke test against a real deployment
+odooshadow profile list              # smoke test against a real deployment
 ```
 
 For Coder template changes, republish to a test Coder server and create a

@@ -33,11 +33,11 @@ def _have_enterprise_zip() -> bool:
     """True if a local odoo/enterprise.zip bundle is present to bake in."""
     return ENTERPRISE_ZIP.is_file()
 
-# The build runs as a Coder workspace from the odoo-synth-builder template
+# The build runs as a Coder workspace from the odooshadow-builder template
 # (download context -> docker build -> push -> PUT result -> poweroff). The panel keeps
 # orchestration: package context, presign URLs, launch the workspace, poll S3
 # for the result.
-BUILDER_TEMPLATE = "odoo-synth-builder"
+BUILDER_TEMPLATE = "odooshadow-builder"
 
 
 def _coder_env() -> dict:
@@ -155,7 +155,7 @@ def _builder_settings() -> dict:
 def _launch_builder_workspace(image_uri: str, context_get: str, result_put: str,
                                profile: dict, odoo_component: dict, s: dict) -> str:
     """Option E: launch the build as a Coder workspace from the
-    odoo-synth-builder template (build_mode=odoo, the default -- unchanged
+    odooshadow-builder template (build_mode=odoo, the default -- unchanged
     from before multi-repo support). The workspace's startup_script runs the
     same build logic (download context -> docker build -> push to ECR -> PUT
     result JSON to S3 -> poweroff). Returns the workspace name (the panel
@@ -235,7 +235,7 @@ def _launch_builder_workspace(image_uri: str, context_get: str, result_put: str,
 
 def _launch_builder_workspace_generic(image_uri: str, result_put: str,
                                        component: dict, profile: dict, s: dict) -> str:
-    """Multi-repo: launch the SAME odoo-synth-builder template in
+    """Multi-repo: launch the SAME odooshadow-builder template in
     build_mode=generic -- clones `component`'s own repo and builds its own
     Dockerfile directly, no context.tgz/build-args/enterprise handling."""
     import os

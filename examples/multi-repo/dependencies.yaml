@@ -1,5 +1,5 @@
-# Input for: odoo-synth profile create --dependencies-file examples/multi-repo/dependencies.yaml ...
-#            odoo-synth profile update  <id> --dependencies-file examples/multi-repo/dependencies.yaml
+# Input for: odooshadow profile create --dependencies-file examples/multi-repo/dependencies.yaml ...
+#            odooshadow profile update  <id> --dependencies-file examples/multi-repo/dependencies.yaml
 #
 # Shared infra declared by name + kind (never auto-provisioned, never
 # assumed) -- the workspace boots these before any component that wires to

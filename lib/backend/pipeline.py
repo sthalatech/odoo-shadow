@@ -1,16 +1,16 @@
-"""Mask orchestration: run the masker as a Coder odoo-synth-masker workspace.
+"""Mask orchestration: run the masker as a Coder odooshadow-masker workspace.
 
 Single operation: **mask**.
   * SOURCE      = a live Postgres DB the user points at (a connection URL/DSN).
                   greenmask dumps + masks it directly.
   * DESTINATION = the masked DB. RDS-free: the masker restores into a throwaway
                   local postgres on the masker workspace (see
-                  coder/templates/odoo-synth-masker/main.tf). Always dropped +
+                  coder/templates/odooshadow-masker/main.tf). Always dropped +
                   recreated.
   * OUTPUT      = optionally a downloadable pg_dump of the masked DB (uploaded to
                   S3 via a presigned PUT; a presigned GET is returned to the UI).
 
-The masker runs as a Coder odoo-synth-masker workspace; the panel tails
+The masker runs as a Coder odooshadow-masker workspace; the panel tails
 `coder logs -f` live into the run log and polls S3 for the
 runner-result.json marker.
 """
@@ -32,13 +32,13 @@ LogSink = Callable[[str], None]
 
 # Option E, Phase 3: the mask + discovery single-container workloads run as
 # Coder workspaces, one distinct template per job (previously shared as a
-# single "odoo-synth-runner" template -- split so the Coder dashboard and
+# single "odooshadow-runner" template -- split so the Coder dashboard and
 # `coder templates` list reflect what's actually running). The panel keeps
 # orchestration: it builds the same env-var dict, writes it to S3 as an
 # env-file, presigns a result PUT URL, launches the workspace, tails its logs
 # live, and polls S3 for the result marker -- exactly like the build.
-DISCOVERER_TEMPLATE = "odoo-synth-discoverer"
-MASKER_TEMPLATE = "odoo-synth-masker"
+DISCOVERER_TEMPLATE = "odooshadow-discoverer"
+MASKER_TEMPLATE = "odooshadow-masker"
 
 
 def _require_coder() -> None:
@@ -456,6 +456,14 @@ def _mask_env_pairs(src: dict, tgt: dict, params: dict,
         ("NEUTRALIZE_FETCHMAIL", flag("neutralize_fetchmail", nd.get("fetchmail", True))),
         ("NEUTRALIZE_PAYMENT", flag("neutralize_payment", nd.get("payment", True))),
         ("NEUTRALIZE_SMTP_PARAM", flag("neutralize_smtp_param", nd.get("smtp_param", True))),
+        # C2: credential scrubbing (ir_config_parameter secrets, res_users
+        # passwords, totp_secret, API keys, 2FA devices). On by default.
+        ("NEUTRALIZE_SECRETS", flag("neutralize_secrets", nd.get("secrets", True))),
+        # H1: post-mask verification (scan for residual PII patterns). On by default.
+        ("POST_MASK_VERIFY", flag("post_mask_verify", nd.get("post_mask_verify", True))),
+        # H1 (Pass-2): canary records (seed into restored temp instance, assert
+        # values absent after masking). On by default.
+        ("CANARY_VERIFY", flag("canary_verify", nd.get("canary_verify", True))),
         ("RESET_ADMIN_LOGIN", flag("reset_admin_login",
                                   config.panel().get("reset_admin_login", True))),
     ]
@@ -504,7 +512,7 @@ def run_operation(operation: str, params: dict, emit: LogSink,
     src = parse_dsn(dsn)
 
     # DESTINATION: mask restores into a THROWAWAY local postgres on the
-    # masker workspace (see coder/templates/odoo-synth-masker/main.tf) -- no
+    # masker workspace (see coder/templates/odooshadow-masker/main.tf) -- no
     # shared DB, so no two envs share one and re-masking never clobbers another
     # env. The masker template overrides TARGET_DB_* to point at its local
     # `masker-db` container. The destination host/user/password/dbname are
@@ -512,7 +520,7 @@ def run_operation(operation: str, params: dict, emit: LogSink,
     tgt = config.destination()
 
     # The masked pg_dump is the PRIMARY artifact: each env hydrates its own
-    # local DB from it (see coder/templates/odoo-synth-workspacer/main.tf).
+    # local DB from it (see coder/templates/odooshadow-workspacer/main.tf).
     # Always produce it unless the caller explicitly disabled it.
     masked_dump_get_url = None
     masked_dump_put_url = None
@@ -537,7 +545,7 @@ def run_operation(operation: str, params: dict, emit: LogSink,
     emit(f"[panel] mask source={src['user']}@{src['host']}:{src['port']}/{src['dbname']}{via} "
          f"-> {tgt['dbname']}@{tgt['host']} profile={params.get('mask_profile')}")
 
-    # ---- run the masker as a Coder workspace (odoo-synth-masker template) ----
+    # ---- run the masker as a Coder workspace (odooshadow-masker template) ----
     # Env vars written to S3 as an env-file the workspace downloads. The masker
     # image is unchanged; it PUTs a runner-result.json marker to S3 on
     # completion. The panel tails `coder logs -f` live into the run log.

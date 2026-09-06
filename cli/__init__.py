@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""odoo-synth — CLI for the odoo-synth masking pipeline (Phase C2).
+"""odooshadow — CLI for the odooshadow masking pipeline (Phase C2).
 
 Replaces the FastAPI web panel. Calls the same backend library modules
 (lib/backend/*.py) directly over an in-process call boundary — no HTTP.
@@ -131,7 +131,7 @@ def _run_sync(operation: str, params: dict, profile_id: Optional[str],
                              finished_at=time.time())
         return exit_code
     except Exception as exc:  # noqa: BLE001
-        emit(f"[odoo-synth] ERROR: {exc}")
+        emit(f"[odooshadow] ERROR: {exc}")
         store.flush_logs(run_id)
         store.update_run(
             run_id,
@@ -139,7 +139,7 @@ def _run_sync(operation: str, params: dict, profile_id: Optional[str],
             result={"error": str(exc)},
             finished_at=time.time(),
         )
-        _err(f"\n[odoo-synth] run {run_id} -> failed: {exc}")
+        _err(f"\n[odooshadow] run {run_id} -> failed: {exc}")
         return 1
     status = "succeeded" if exit_code == 0 else "failed"
     store.flush_logs(run_id)
@@ -152,7 +152,7 @@ def _run_sync(operation: str, params: dict, profile_id: Optional[str],
         finished_at=time.time(),
     )
     try:
-        _err(f"\n[odoo-synth] run {run_id} -> {status} (exit {exit_code})")
+        _err(f"\n[odooshadow] run {run_id} -> {status} (exit {exit_code})")
     except BrokenPipeError:
         pass
     return exit_code
@@ -239,6 +239,24 @@ def _add_mask_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--neutralize-smtp-param", dest="neutralize_smtp_param",
                    action="store_true", default=None)
     p.add_argument("--no-neutralize-smtp-param", dest="neutralize_smtp_param",
+                   action="store_false")
+    # C2: credential scrubbing (ir_config_parameter secrets, res_users password
+    # hashes, totp_secret, API keys, 2FA devices). On by default -- security
+    # hygiene, not PII, and there's no reason to ever turn it off for a dev copy.
+    p.add_argument("--neutralize-secrets", dest="neutralize_secrets",
+                   action="store_true", default=None)
+    p.add_argument("--no-neutralize-secrets", dest="neutralize_secrets",
+                   action="store_false")
+    # H1: post-mask verification (scan for residual PII patterns). On by default.
+    p.add_argument("--post-mask-verify", dest="post_mask_verify",
+                   action="store_true", default=None)
+    p.add_argument("--no-post-mask-verify", dest="post_mask_verify",
+                   action="store_false")
+    # H1 (Pass-2): canary records -- seed into restored temp instance, assert
+    # values absent after masking. On by default.
+    p.add_argument("--canary-verify", dest="canary_verify",
+                   action="store_true", default=None)
+    p.add_argument("--no-canary-verify", dest="canary_verify",
                    action="store_false")
     p.add_argument("--reset-admin-login", dest="reset_admin_login",
                    action="store_true", default=None)
@@ -553,6 +571,9 @@ def _mask_params_from_legacy(args) -> dict:
         "neutralize_fetchmail": args.neutralize_fetchmail,
         "neutralize_payment": args.neutralize_payment,
         "neutralize_smtp_param": args.neutralize_smtp_param,
+        "neutralize_secrets": args.neutralize_secrets,
+        "post_mask_verify": args.post_mask_verify,
+        "canary_verify": args.canary_verify,
         "reset_admin_login": args.reset_admin_login,
         "produce_dump": bool(args.produce_dump),
         "subset_days": args.subset_days,
@@ -563,7 +584,7 @@ def _mask_params_from_legacy(args) -> dict:
 
 
 def _refresh_env_preset(profile_id: str) -> None:
-    """Best-effort: regenerate coder/templates/odoo-synth-workspacer/presets.tf
+    """Best-effort: regenerate coder/templates/odooshadow-workspacer/presets.tf
     from the profile+run stores and push just that template, so a successful mask
     immediately shows up as a one-click preset in the Coder dashboard (named
     "<label> (masked <timestamp>)" -- one preset per profile, refreshed each
@@ -578,20 +599,20 @@ def _refresh_env_preset(profile_id: str) -> None:
         subprocess.run([sys.executable, str(REPO_ROOT / "deploy" / "_gen_presets.py")],
                        check=True, cwd=REPO_ROOT, capture_output=True, text=True, timeout=60)
     except subprocess.CalledProcessError as exc:
-        _err(f"[odoo-synth] WARN: preset generation failed (mask succeeded regardless): "
+        _err(f"[odooshadow] WARN: preset generation failed (mask succeeded regardless): "
              f"{(exc.stderr or '').strip()}")
         return
-    tpl_dir = REPO_ROOT / "coder" / "templates" / "odoo-synth-workspacer"
+    tpl_dir = REPO_ROOT / "coder" / "templates" / "odooshadow-workspacer"
     try:
-        subprocess.run(["coder", "templates", "push", "-y", "--directory", str(tpl_dir), "odoo-synth-workspacer"],
+        subprocess.run(["coder", "templates", "push", "-y", "--directory", str(tpl_dir), "odooshadow-workspacer"],
                        env={**os.environ, **pipeline._coder_env()}, cwd=tpl_dir,
                        check=True, capture_output=True, text=True, timeout=180)
-        print(f"[odoo-synth] preset refreshed for profile {profile_id} -> Coder dashboard")
+        print(f"[odooshadow] preset refreshed for profile {profile_id} -> Coder dashboard")
     except subprocess.CalledProcessError as exc:
-        _err(f"[odoo-synth] WARN: template push failed (mask succeeded regardless): "
+        _err(f"[odooshadow] WARN: template push failed (mask succeeded regardless): "
              f"{(exc.stderr or '').strip()}")
     except FileNotFoundError:
-        _err("[odoo-synth] WARN: `coder` CLI not found; skipped preset refresh")
+        _err("[odooshadow] WARN: `coder` CLI not found; skipped preset refresh")
 
 
 def _mask_profile(profile_id: str, args) -> int:
@@ -613,7 +634,8 @@ def _mask_profile(profile_id: str, args) -> int:
     # run_params() filters None overrides, so this is a pure override.
     for _k in ("mask_profile", "admin_password", "gm_jobs", "subset_days",
                "exclude_table_data", "neutralize_mail", "neutralize_fetchmail",
-               "neutralize_payment", "neutralize_smtp_param", "reset_admin_login"):
+               "neutralize_payment", "neutralize_smtp_param", "neutralize_secrets",
+               "post_mask_verify", "canary_verify", "reset_admin_login"):
         _v = getattr(args, _k, None)
         if _v is not None:
             overrides[_k] = _v
@@ -757,7 +779,7 @@ def cmd_workspace_create(args) -> int:
     if not config.environments_configured():
         _err("developer workspaces are not configured "
              "(set CODER_URL + CODER_SESSION_TOKEN, ensure the "
-             "odoo-synth-workspacer template is published)")
+             "odooshadow-workspacer template is published)")
         return 2
     if args.profile_id:
         prof = store.get_profile(args.profile_id)
@@ -902,8 +924,8 @@ def cmd_config(args) -> int:
 
 def _build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        prog="odoo-synth",
-        description=("odoo-synth masking pipeline CLI. Calls the backend "
+        prog="odooshadow",
+        description=("odooshadow masking pipeline CLI. Calls the backend "
                      "library directly (no HTTP). Long-running ops run in the "
                      "foreground and stream logs to stdout.\n\n"
                      "User management is now native: `coder users create/list`. "

@@ -1,4 +1,20 @@
-# odoo-synth rulebook
+# odooshadow rulebook
+
+> **Status (C1 — DevOps review):** This rulebook is a **specification ahead of
+> implementation.** Nothing in the masker pipeline currently reads these files.
+> The masker (`entrypoint.sh`) loads only `profiles/*.yml` or the
+> discovery-generated profile from `MASK_RULES_URL`. The `rules scan` /
+> `rules diff` commands described below are not yet in the CLI.
+>
+> To avoid the false-confidence posture where policy reads as enforced but
+> isn't, `rules/` is no longer copied into the masker Docker image (C1 fix).
+> The long-term plan is a compiler step that reads this rulebook + the live
+> schema and emits the greenmask `dump.transformation` list, replacing
+> hand-maintained profiles as the default path. Until then, treat these files
+> as the authoritative spec for what *should* be masked, and use the
+> `profiles/*.yml` files (or the discovery-generated profile) as what actually
+> *is* masked.
+
 
 This directory is the actual community deliverable. The masking *engine*
 (`anon` extension) already exists and is maintained by people who know
@@ -8,7 +24,7 @@ fields are sensitive** — that's what these files are.
 
 ## Layout
 
-Files are numbered so `odoo-synth` applies them in a predictable order
+Files are numbered so `odooshadow` applies them in a predictable order
 and so reviewers can find things by app area:
 
 | File | Covers |
@@ -85,7 +101,7 @@ redacted" for a tool whose entire purpose is safety.
 ## Extending this rulebook
 
 Every OCA/enterprise module you install adds models with fields nobody's
-reviewed yet. That's what `odoo-synth rules scan` is for — it flags new
+reviewed yet. That's what `odooshadow rules scan` is for — it flags new
 `Char`/`Text`/`Many2one(res.partner)` fields on any installed model that
 aren't yet declared `keep` or given a strategy here, and `rules diff`
 runs the same check in CI against a schema snapshot so this rulebook

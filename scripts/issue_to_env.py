@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""GitHub issue -> odoo-synth environment + AI agent launcher.
+"""GitHub issue -> odooshadow environment + AI agent launcher.
 
 Invoked by .github/workflows/issue-env.yml on the `issues` webhook (opened).
 It:
 
-  1. Matches the issue's repo URL to an odoo-synth *profile* whose addons repo
+  1. Matches the issue's repo URL to an odooshadow *profile* whose addons repo
      is the same, picks the profile's latest successful mask run (masked dump),
      and creates a Coder environment from it. This matches the env template
      preset the Coder dashboard would offer for that repo.
@@ -23,13 +23,14 @@ It:
 
 Inputs come from env vars set by the workflow:
   ISSUE_NUMBER, ISSUE_TITLE, ISSUE_BODY, ISSUE_URL, ISSUE_REPO_URL,
-  ODOO_SYNTH_AGENT (default opencode; profile.agent_name wins when set),
-  ODOO_SYNTH_MAX_ITER (kept for compat; the agent self-drives via superpowers),
-  ODOO_SYNTH_AGENT_TIMEOUT (wall-clock cost guard, default 3600s),
-  ODOO_SYNTH_BRANCH_HINT (optional repo branch override; else profile ref).
+  ODOOSHADOW_AGENT (default opencode; profile.agent_name wins when set),
+  ODOOSHADOW_MAX_ITER (kept for compat; the agent self-drives via superpowers),
+  ODOOSHADOW_AGENT_TIMEOUT (wall-clock cost guard, default 3600s),
+  ODOOSHADOW_BRANCH_HINT (optional repo branch override; else profile ref).
 
 Exit codes: 0 = env created + agent launched; 1 = no matching profile; 2 = env
-create failed; 3 = env did not become running; 4 = agent launch failed.
+create failed; 3 = env did not become running; 4 = agent launch failed; 6 = concurrency
+cap reached (H2: ODOOSHADOW_MAX_CONCURRENT).
 """
 from __future__ import annotations
 import os
@@ -287,16 +288,16 @@ def main() -> int:
     issue_body = os.environ.get("ISSUE_BODY", "").strip()
     issue_url = os.environ.get("ISSUE_URL", "").strip()
     issue_repo = os.environ.get("ISSUE_REPO_URL", "").strip()
-    agent = os.environ.get("ODOO_SYNTH_AGENT", "opencode").strip() or "opencode"
-    max_iter = int(os.environ.get("ODOO_SYNTH_MAX_ITER", "15") or "15")
-    branch_hint = os.environ.get("ODOO_SYNTH_BRANCH_HINT", "").strip()
+    agent = os.environ.get("ODOOSHADOW_AGENT", "opencode").strip() or "opencode"
+    max_iter = int(os.environ.get("ODOOSHADOW_MAX_ITER", "15") or "15")
+    branch_hint = os.environ.get("ODOOSHADOW_BRANCH_HINT", "").strip()
 
     if not issue_repo:
         _log("ERROR: ISSUE_REPO_URL not set")
         return 1
     if not config.environments_configured():
         _log("ERROR: developer environments are not configured "
-             "(CODER_URL + CODER_SESSION_TOKEN + odoo-synth-workspacer template)")
+             "(CODER_URL + CODER_SESSION_TOKEN + odooshadow-workspacer template)")
         return 1
 
     _log(f"issue #{issue_number}: {issue_title!r}")
@@ -304,8 +305,8 @@ def main() -> int:
 
     pid, profile = match_profile(issue_repo)
     if not pid:
-        _log(f"ERROR: no odoo-synth profile matches repo {issue_repo}; "
-             "create+build+mask a profile for it first (odoo-synth profile create)")
+        _log(f"ERROR: no odooshadow profile matches repo {issue_repo}; "
+             "create+build+mask a profile for it first (odooshadow profile create)")
         return 1
     _log(f"matched profile {pid} ({profile.get('label')}) "
          f"image_status={profile.get('image_status')}")
@@ -313,7 +314,7 @@ def main() -> int:
     run_id = latest_successful_mask_run(pid)
     if not run_id:
         _log(f"ERROR: profile {pid} has no succeeded mask run with a dump; "
-             "run `odoo-synth profile mask <id>` first")
+             "run `odooshadow profile mask <id>` first")
         return 1
     _log(f"using masked dump from mask run {run_id}")
 
@@ -326,6 +327,60 @@ def main() -> int:
     # branch; default is the repo's main branch. The issue
     # launcher passes this explicitly so the agent doesn't have to guess.
     pr_base = (profile.get("pr_base") or "").strip() or "main"
+
+    # H2 (DevOps review): concurrency cap. Before launching a new workspace,
+    # count active (non-terminated) environments and refuse if we're at the
+    # limit. This prevents fifty open issues from creating fifty t3.large
+    # instances with no cap. Default 10; override with ODOOSHADOW_MAX_CONCURRENT.
+    max_concurrent = int(os.environ.get("ODOOSHADOW_MAX_CONCURRENT", "10") or "10")
+    active = [e for e in store.list_environments(limit=500)
+              if e.get("status") not in ("terminated", "deleted")]
+    if len(active) >= max_concurrent:
+        _log(f"ERROR: concurrency cap reached ({len(active)}/{max_concurrent} "
+             f"active workspaces); close an issue or raise "
+             f"ODOOSHADOW_MAX_CONCURRENT to allow more")
+        return 6
+    _log(f"concurrency: {len(active)}/{max_concurrent} active workspaces (cap ok)")
+
+    # H5 (DevOps review): on reopened, reuse the existing workspace for this
+    # issue (if any) instead of creating a second one. The close webhook tears
+    # down the env, but if the issue was reopened before teardown completed
+    # (or the close webhook was missed), we should reuse rather than duplicate.
+    if os.environ.get("ISSUE_REOPENED") == "1":
+        existing = _envs_for_issue(issue_repo, issue_number)
+        live = [e for e in existing
+                if e.get("status") not in ("terminated", "deleted")]
+        if live:
+            env_id = live[0]["id"]
+            ws_name = live[0].get("workspace_name") or env_id
+            _log(f"reopened: reusing existing workspace {env_id} ({ws_name}) "
+                 f"for issue {issue_ref}")
+            # Jump to agent launch with the existing env
+            _log("env is running; staging agent context + launching agent")
+            task = _build_task(issue_ref, issue_title, issue_url, issue_body, pr_base)
+            agent = (profile.get("agent_name") or agent).strip() or "opencode"
+            system_prompt = (profile.get("agent_system_prompt") or "").strip()
+            if not system_prompt:
+                sp_path = REPO_ROOT / environments.AGENT_SYSTEM_PROMPT_PATH
+                try:
+                    if sp_path.exists():
+                        system_prompt = sp_path.read_text()
+                except Exception:  # noqa: BLE001
+                    pass
+            agent_timeout = int(os.environ.get("ODOOSHADOW_AGENT_TIMEOUT", "3600") or "3600")
+            try:
+                res = environments.run_agent(
+                    env_id, task, agent=agent, max_iterations=max_iter,
+                    issue=issue_ref, system_prompt=system_prompt,
+                    timeout=agent_timeout)
+            except Exception as exc:  # noqa: BLE001
+                _log(f"ERROR: agent launch failed: {exc}")
+                return 4
+            _log(f"agent finished: exit={res['exit_code']} workspace={res['workspace']}")
+            if res["output"]:
+                _log("agent output (head):\n" + "\n".join(res["output"].splitlines()[:40]))
+            return 0
+        _log("reopened: no live workspace found for this issue; creating a new one")
 
     _log(f"creating env: name={label} issue={issue_ref} branch={repo_branch} "
          f"pr_base={pr_base}")
@@ -340,7 +395,7 @@ def main() -> int:
     _log(f"env created: env_id={env_id} workspace={label}")
 
     _log("waiting for the workspace to reach running ...")
-    wait_timeout = int(os.environ.get("ODOO_SYNTH_WAIT_TIMEOUT", "1200") or "1200")
+    wait_timeout = int(os.environ.get("ODOOSHADOW_WAIT_TIMEOUT", "1200") or "1200")
     if not environments.wait_for_env(env_id, timeout=wait_timeout):
         _log("ERROR: env did not reach running in time")
         return 3
@@ -361,7 +416,7 @@ def main() -> int:
         except Exception:  # noqa: BLE001
             pass
     # Wall-clock cost guard (replaces ralph's --max-iterations cap).
-    agent_timeout = int(os.environ.get("ODOO_SYNTH_AGENT_TIMEOUT", "3600") or "3600")
+    agent_timeout = int(os.environ.get("ODOOSHADOW_AGENT_TIMEOUT", "3600") or "3600")
 
     try:
         res = environments.run_agent(

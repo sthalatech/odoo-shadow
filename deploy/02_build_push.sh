@@ -3,8 +3,8 @@
 #
 # These two need no Odoo source and are built every run. The Odoo image is NOT
 # built here -- it is a profile-level concern baked per-profile from the
-# profile's pinned odoo_git_ref + custom addons via 'odoo-synth profile build'
-# (the odoo-synth-builder Coder template). Nothing in basic infra consumes the
+# profile's pinned odoo_git_ref + custom addons via 'odooshadow profile build'
+# (the odooshadow-builder Coder template). Nothing in basic infra consumes the
 # Odoo image; the ECR repo for it is still created by 01_ecr.sh so per-profile
 # builds have somewhere to push.
 source "$(dirname "$0")/lib.sh"
