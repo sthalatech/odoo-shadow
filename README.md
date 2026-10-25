@@ -30,4 +30,4 @@ Found a bug or have a feature request? [Open an issue](../../issues/new) with st
 
 ## License
 
-Apache-2.0 © Sthala
+MIT © Sthala
